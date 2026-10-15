@@ -328,7 +328,7 @@ final class Puller
 
     /**
      * Empties site/cache and media/ through Kirby's cache and filesystem
-     * APIs; dotfiles such as .gitignore or .htaccess stay.
+     * APIs; dotfiles (.gitkeep, .gitignore, .htaccess) stay.
      *
      * media/panel and media/plugins hold panel and plugin assets, not
      * content derivatives — removing them breaks the open panel session
@@ -349,7 +349,8 @@ final class Puller
 
         foreach ([$this->kirby->root('cache'), $this->kirby->root('media')] as $root) {
             foreach (Dir::read($root, null, true) as $item) {
-                if (in_array($item, $keep, true) === true) {
+                // .gitkeep is not on Kirby's ignore list for Dir::read()
+                if (in_array($item, $keep, true) === true || str_starts_with(basename($item), '.') === true) {
                     continue;
                 }
 

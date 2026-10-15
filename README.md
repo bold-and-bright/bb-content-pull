@@ -221,7 +221,7 @@ Ohne `--dry-run` enthält `result` die Listen `written`, `deleted`, `failed` (`[
 
 ### Nach dem Pull
 
-- `site/cache` und `media/` werden geleert (Kirby-Cache-API bzw. `Kirby\Filesystem\Dir`). `media/panel` und `media/plugins` bleiben, sonst bricht ein gerade geöffnetes Panel ab.
+- `site/cache` und `media/` werden geleert (Kirby-Cache-API bzw. `Kirby\Filesystem\Dir`). `media/panel`, `media/plugins` und Dotfiles (`.gitkeep`, `.htaccess`) bleiben – sonst bricht ein gerade geöffnetes Panel ab bzw. verschwinden versionierte Platzhalter.
 - Jeder Lauf wird in `site/logs/content-pull.log` protokolliert: Start mit Optionen, jede geschriebene / gelöschte / fehlgeschlagene Datei, Abschluss.
 - Es läuft immer nur ein Pull pro Installation gleichzeitig (Lock-Datei im System-Temp).
 
