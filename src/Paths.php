@@ -15,8 +15,11 @@ final class Paths
     public const CONTENT  = 'content';
     public const ACCOUNTS = 'accounts';
 
-    /** File names that are never transferred, deleted or listed. */
-    public const EXCLUDED_NAMES = ['.lock', '.DS_Store', '.gitkeep'];
+    /**
+     * File names that are never transferred, deleted or listed. `.logins` is
+     * Kirby's per-installation login throttle in site/accounts.
+     */
+    public const EXCLUDED_NAMES = ['.lock', '.DS_Store', '.gitkeep', '.logins'];
 
     /** Kirby 5 stores unsaved panel changes in this subfolder. */
     public const CHANGES_DIR = '_changes';

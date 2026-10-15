@@ -30,6 +30,7 @@ final class FilterTest extends TestCase
         'content/2_aboutus/.gitkeep',
         'accounts/abc/user.txt',
         'accounts/abc/index.php',
+        'accounts/.logins',
     ];
 
     private function accepted(Options $options, array $languages = ['de', 'en']): array
@@ -154,6 +155,19 @@ final class FilterTest extends TestCase
         $this->assertContains('accounts/abc/user.txt', $paths);
         $this->assertContains('accounts/abc/index.php', $paths);
         $this->assertContains('content/1_about/team.jpg', $paths);
+    }
+
+    public function testScopeAccountsPullsOnlyAccounts(): void
+    {
+        $options = new Options(scope: 'accounts');
+
+        $this->assertTrue($options->includesAccounts());
+        $this->assertSame(
+            ['accounts/abc/user.txt', 'accounts/abc/index.php'],
+            $this->accepted($options),
+            'no content, no login throttle file'
+        );
+        $this->assertSame(['scope' => 'accounts'], $options->toQuery());
     }
 
     public function testManifestScanAppliesFilterAndHashes(): void

@@ -10,7 +10,8 @@ use InvalidArgumentException;
  */
 final class Options
 {
-    public const SCOPES = ['texts', 'media', 'all'];
+    /** "accounts" pulls only site/accounts, independent of the content */
+    public const SCOPES = ['texts', 'media', 'all', 'accounts'];
 
     /**
      * @param array<int, string> $languages
@@ -29,7 +30,7 @@ final class Options
         public readonly bool $archive = false,
     ) {
         if (in_array($scope, self::SCOPES, true) === false) {
-            throw new InvalidArgumentException('Invalid scope "' . $scope . '" (expected texts, media or all)');
+            throw new InvalidArgumentException('Invalid scope "' . $scope . '" (expected texts, media, all or accounts)');
         }
 
         foreach ($languages as $code) {
@@ -65,6 +66,15 @@ final class Options
             includeChanges: self::flag($get('include-changes')),
             archive: self::flag($get('archive')),
         );
+    }
+
+    /**
+     * Whether site/accounts is part of this pull (--accounts or
+     * --scope=accounts).
+     */
+    public function includesAccounts(): bool
+    {
+        return $this->accounts === true || $this->scope === 'accounts';
     }
 
     /**

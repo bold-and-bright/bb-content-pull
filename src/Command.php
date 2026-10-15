@@ -25,7 +25,7 @@ final class Command
             'args' => [
                 'scope' => [
                     'longPrefix'   => 'scope',
-                    'description'  => 'texts (all *.txt incl. file metadata), media (everything else) or all',
+                    'description'  => 'texts (all *.txt incl. file metadata), media (everything else), all, or accounts (only site/accounts)',
                     'defaultValue' => 'all',
                 ],
                 'page' => [
@@ -44,7 +44,7 @@ final class Command
                 ],
                 'delete'          => $flag('delete', 'Delete local files in scope that do not exist on the source'),
                 'dry-run'         => $flag('dry-run', 'Only list what would change'),
-                'accounts'        => $flag('accounts', 'Also sync site/accounts'),
+                'accounts'        => $flag('accounts', 'Also sync site/accounts (source needs bb.contentpull.accounts)'),
                 'include-changes' => $flag('include-changes', 'Include Kirby 5 _changes (unsaved panel changes)'),
                 'archive'         => $flag('archive', 'Download the filtered set as one ZIP (large media sets)'),
                 'json'            => $flag('json', 'Machine-readable output: one JSON document on stdout'),

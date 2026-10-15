@@ -27,6 +27,10 @@ final class Filter
      */
     public function roots(): array
     {
+        if ($this->options->scope === 'accounts') {
+            return [Paths::ACCOUNTS];
+        }
+
         return $this->options->accounts === true
             ? [Paths::CONTENT, Paths::ACCOUNTS]
             : [Paths::CONTENT];

@@ -29,7 +29,7 @@ final class Server
             return self::error($e->getMessage(), 400);
         }
 
-        if ($options->accounts === true && self::accountsAllowed() === false) {
+        if ($options->includesAccounts() === true && self::accountsAllowed() === false) {
             return self::error('Accounts are not served by this source (bb.contentpull.accounts)', 403);
         }
 
@@ -94,7 +94,7 @@ final class Server
             return self::error($e->getMessage(), 400);
         }
 
-        if ($options->accounts === true && self::accountsAllowed() === false) {
+        if ($options->includesAccounts() === true && self::accountsAllowed() === false) {
             return self::error('Accounts are not served by this source (bb.contentpull.accounts)', 403);
         }
 

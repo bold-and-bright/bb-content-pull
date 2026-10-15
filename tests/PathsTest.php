@@ -117,6 +117,7 @@ final class PathsTest extends TestCase
         $this->assertTrue(Paths::isExcluded('content/1_about/.lock'));
         $this->assertTrue(Paths::isExcluded('content/.DS_Store'));
         $this->assertTrue(Paths::isExcluded('content/1_about/.gitkeep'));
+        $this->assertTrue(Paths::isExcluded('accounts/.logins'));
         $this->assertTrue(Paths::isExcluded('content/1_about/.bbpull-abc123.tmp'));
         $this->assertTrue(Paths::isExcluded('content/1_about/_changes/default.de.txt'));
         $this->assertFalse(Paths::isExcluded('content/1_about/_changes/default.de.txt', includeChanges: true));

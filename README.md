@@ -35,7 +35,7 @@ kirby content:pull ── GET /bb-content-pull/manifest ──▶  Liste: Pfad, 
 
 Pfade im Manifest beginnen immer mit ihrem Root: `content/1_about/default.de.txt`, `accounts/abc123/user.txt`.
 
-**Immer ausgeschlossen:** `.lock`, `.DS_Store`, `.gitkeep` sowie Temp-Dateien des Plugins (`.bbpull-*`). Kirby-5-Änderungsstände (`_changes/`) nur mit `--include-changes`.
+**Immer ausgeschlossen:** `.lock`, `.DS_Store`, `.gitkeep`, `.logins` (Kirbys Login-Drosselung in `site/accounts`) sowie Temp-Dateien des Plugins (`.bbpull-*`). Kirby-5-Änderungsstände (`_changes/`) nur mit `--include-changes`.
 
 ## Installation
 
@@ -133,7 +133,7 @@ Eine Umgebung kann Quelle **und** Ziel sein (Staging holt von Production und lie
 ## CLI
 
 ```
-kirby content:pull [--scope=texts|media|all] [--page=<id>] [--recursive]
+kirby content:pull [--scope=texts|media|all|accounts] [--page=<id>] [--recursive]
                    [--lang=de,en] [--missing-only] [--max-size=20M]
                    [--delete] [--dry-run] [--accounts] [--include-changes]
                    [--archive] [--json]
@@ -141,7 +141,7 @@ kirby content:pull [--scope=texts|media|all] [--page=<id>] [--recursive]
 
 | Option | Beschreibung |
 | --- | --- |
-| `--scope` | `texts` = alle `*.txt` inkl. Datei-Metadaten (`bild.jpg.de.txt`), `media` = alle anderen Dateien, `all` (Default). |
+| `--scope` | `texts` = alle `*.txt` inkl. Datei-Metadaten (`bild.jpg.de.txt`), `media` = alle anderen Dateien, `all` (Default), `accounts` = nur `site/accounts`, ohne Content. |
 | `--page` | Nur dieser Seitenordner, als Kirby-Page-ID (`ueber-uns/team`). Sortiernummern und `_drafts` werden ignoriert, Entwürfe sind also adressierbar. `site` = nur `site.*.txt` und Site-Dateien. |
 | `--recursive` | Mit `--page`: inkl. aller Unterseiten. `--page=site --recursive` = alles. |
 | `--lang` | Nur Textdateien dieser Sprachen. Medien sind sprachunabhängig und bleiben drin. |
@@ -149,7 +149,7 @@ kirby content:pull [--scope=texts|media|all] [--page=<id>] [--recursive]
 | `--max-size` | Medien oberhalb dieser Größe überspringen (`500K`, `20M`, `1G`). Textdateien nie. |
 | `--delete` | Lokale Dateien **im gewählten Scope** löschen, die es in der Quelle nicht gibt. Leere Seitenordner werden entfernt. Default aus. |
 | `--dry-run` | Nur die Diff-Liste ausgeben: neu / geändert / gelöscht / übersprungen. |
-| `--accounts` | Zusätzlich `site/accounts` syncen (Quelle braucht `bb.contentpull.accounts`). Accounts werden immer komplett übernommen, Scope/Page/Lang gelten nur für Content. |
+| `--accounts` | Zusätzlich zum Content `site/accounts` syncen. Accounts werden immer komplett übernommen, Scope/Page/Lang gelten nur für Content. Nur Accounts: `--scope=accounts`. Beides braucht `bb.contentpull.accounts` auf der Quelle. |
 | `--include-changes` | Kirby-5-`_changes`-Ordner (ungespeicherte Panel-Änderungen) mitnehmen. |
 | `--archive` | Das gefilterte Set als ein ZIP holen statt Datei für Datei – sinnvoll für viele Medien. Übernommen werden trotzdem nur die Dateien aus dem Diff. Braucht `ext-zip` auf beiden Seiten. |
 | `--json` | Ein JSON-Dokument auf stdout statt Fortschrittsausgabe. |
@@ -189,6 +189,9 @@ kirby content:pull --scope=media --archive
 
 # Inklusive Benutzerkonten
 kirby content:pull --accounts
+
+# Nur die Benutzerkonten (z. B. für den Panel-Login auf Stage)
+kirby content:pull --scope=accounts
 
 # In DDEV
 ddev exec vendor/bin/kirby content:pull --scope=texts
@@ -268,7 +271,8 @@ curl -H "Authorization: Bearer $TOKEN" "https://www.example.com/bb-content-pull/
 - `Paths::resolve()` prüft zusätzlich per `realpath`, dass das Ziel innerhalb des Roots liegt; Symlinks nach außen werden abgelehnt. Die Quelle liefert keine Symlinks aus.
 - ZIP-Archive werden nie blind entpackt, sondern Eintrag für Eintrag per Name gelesen und gegen den Hash aus dem Manifest geprüft.
 - Token-Vergleich mit `hash_equals`. Ausgelieferte Dateien sind immer Downloads (`nosniff`), nichts wird gerendert.
-- `site/accounts` enthält Passwort-Hashes: `bb.contentpull.accounts` nur aktivieren, wenn das wirklich gebraucht wird.
+- `site/accounts` enthält Passwort-Hashes: `bb.contentpull.accounts` nur aktivieren, wenn das wirklich gebraucht wird, und das Ziel (Stage, Previews) nicht öffentlich zugänglich machen. Mit gemeinsamem Datei-Cache liegen die Account-Dateien auch dort.
+- Ohne `bb.contentpull.accounts` lehnt die Quelle jede Anfrage mit Accounts ab (`403`).
 
 ## Entwicklung
 
