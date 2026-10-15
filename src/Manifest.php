@@ -17,9 +17,10 @@ final class Manifest
     /**
      * @param array<string, string> $rootDirs e.g. ['content' => '/var/www/content']
      * @param bool                  $hash     false leaves sha1 empty (cheap listing)
+     * @param HashCache|null        $cache    reuses hashes of unchanged files
      * @return array<string, array{path: string, sha1: ?string, size: int, mtime: int}>
      */
-    public static function scan(array $rootDirs, Filter $filter, bool $hash = true): array
+    public static function scan(array $rootDirs, Filter $filter, bool $hash = true, ?HashCache $cache = null): array
     {
         $entries = [];
 
@@ -38,14 +39,26 @@ final class Manifest
                     continue;
                 }
 
+                $size  = $file->getSize();
+                $mtime = $file->getMTime();
+                $sha1  = null;
+
+                if ($hash === true) {
+                    $sha1 = $cache !== null
+                        ? $cache->get($path, $file->getPathname(), $size, $mtime)
+                        : (sha1_file($file->getPathname()) ?: null);
+                }
+
                 $entries[$path] = [
                     'path'  => $path,
-                    'sha1'  => $hash === true ? sha1_file($file->getPathname()) : null,
-                    'size'  => $file->getSize(),
-                    'mtime' => $file->getMTime(),
+                    'sha1'  => $sha1,
+                    'size'  => $size,
+                    'mtime' => $mtime,
                 ];
             }
         }
+
+        $cache?->save();
 
         ksort($entries, SORT_STRING);
 

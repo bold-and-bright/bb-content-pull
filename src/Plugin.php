@@ -55,6 +55,38 @@ final class Plugin
         return $kirby->multilang() === true ? $kirby->languages()->codes() : [];
     }
 
+    /**
+     * Directory for the plugin's own state below the cache root; kept when
+     * the pull clears the cache.
+     */
+    public static function stateDir(App $kirby): string
+    {
+        return $kirby->root('cache') . '/bb-content-pull';
+    }
+
+    /**
+     * Hash cache (`bb.contentpull.hashCache`, default on).
+     */
+    public static function hashCache(App $kirby): ?HashCache
+    {
+        if (self::option('hashCache', true) === false) {
+            return null;
+        }
+
+        return new HashCache(self::stateDir($kirby) . '/hashes.json');
+    }
+
+    /**
+     * Shared file cache of pulling environments (`bb.contentpull.cache`,
+     * a directory; off when not set).
+     */
+    public static function objectCache(): ?ObjectCache
+    {
+        $dir = self::option('cache');
+
+        return is_string($dir) === true && trim($dir) !== '' ? new ObjectCache(rtrim(trim($dir), '/')) : null;
+    }
+
     public static function logFile(App $kirby): string
     {
         // The logs root exists since Kirby 4; fall back to site/logs

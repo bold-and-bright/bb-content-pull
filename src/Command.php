@@ -144,7 +144,10 @@ final class Command
         } elseif ($plan['result']['written'] === [] && $plan['result']['deleted'] === []) {
             $cli->info($plan['result']['failed'] === [] ? 'Already up to date.' : 'Nothing was changed.');
         } elseif ($plan['result']['failed'] === []) {
-            $cli->success('Content pulled, caches cleared.');
+            $cli->success(
+                'Content pulled, caches cleared.' .
+                ($plan['result']['cached'] > 0 ? ' ' . $plan['result']['cached'] . ' file(s) from the shared cache.' : '')
+            );
         }
 
         return $plan;

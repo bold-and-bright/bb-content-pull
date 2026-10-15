@@ -15,6 +15,7 @@ Idee nach [zephir/kirby-contentsync](https://github.com/zephir-digital/kirby-con
 - [Installation](#installation)
 - [Konfiguration](#konfiguration)
 - [CLI](#cli)
+- [Caches](#caches)
 - [Quell-Endpunkte](#quell-endpunkte)
 - [Sicherheit](#sicherheit)
 - [Entwicklung](#entwicklung)
@@ -75,6 +76,8 @@ Alle Optionen liegen unter `bb.contentpull.*`. **Als flache Punkt-Schlüssel set
 | `bb.contentpull.source` | Ziel | – | Basis-URL der Quelle, z. B. `https://www.example.com`. |
 | `bb.contentpull.timeout` | Ziel | `120` | HTTP-Timeout pro Request in Sekunden. |
 | `bb.contentpull.verify` | Ziel | `true` | TLS-Zertifikat der Quelle prüfen. Nur für lokale Quellen mit Self-Signed-Zertifikat auf `false`. |
+| `bb.contentpull.hashCache` | beide | `true` | Hashes unveränderter Dateien (gleiche Größe + mtime) wiederverwenden, siehe [Caches](#caches). |
+| `bb.contentpull.cache` | Ziel | – | Verzeichnis eines gemeinsamen Datei-Caches mehrerer Ziel-Umgebungen, siehe [Caches](#caches). |
 
 Den Token nicht ins Repository committen – aus `.env` oder einer nicht versionierten Datei lesen.
 
@@ -215,7 +218,7 @@ kirby content:pull --page=kontakt --dry-run --json
 }
 ```
 
-Ohne `--dry-run` enthält `result` die Listen `written`, `deleted`, `failed` (`[{path, error}]`) und `duration`. Bei einem Abbruch: `{"ok": false, "error": "…"}` und Exit-Code 1.
+Ohne `--dry-run` enthält `result` die Listen `written`, `deleted`, `failed` (`[{path, error}]`), `cached` (Anzahl der Dateien aus dem gemeinsamen Cache) und `duration`. Bei einem Abbruch: `{"ok": false, "error": "…"}` und Exit-Code 1.
 
 `skipped.reason` ist `size` (über `--max-size`) oder `invalid path` (von der Quelle gelieferter Pfad, der die Validierung nicht besteht – wird nie geschrieben).
 
@@ -224,6 +227,26 @@ Ohne `--dry-run` enthält `result` die Listen `written`, `deleted`, `failed` (`[
 - `site/cache` und `media/` werden geleert (Kirby-Cache-API bzw. `Kirby\Filesystem\Dir`). `media/panel`, `media/plugins` und Dotfiles (`.gitkeep`, `.htaccess`) bleiben – sonst bricht ein gerade geöffnetes Panel ab bzw. verschwinden versionierte Platzhalter.
 - Jeder Lauf wird in `site/logs/content-pull.log` protokolliert: Start mit Optionen, jede geschriebene / gelöschte / fehlgeschlagene Datei, Abschluss.
 - Es läuft immer nur ein Pull pro Installation gleichzeitig (Lock-Datei im System-Temp).
+
+## Caches
+
+### Hash-Cache (Quelle und Ziel)
+
+Ohne Cache liest die Quelle für jedes Manifest alle Dateien im Scope komplett, um ihren SHA-1 zu berechnen – bei einer großen Medienbibliothek bei jedem Pull Hunderte MB. Der Hash-Cache merkt sich pro Pfad Größe, mtime und Hash in `site/cache/bb-content-pull/hashes.json` (bzw. dem `cache`-Root) und hasht nur Dateien neu, die sich geändert haben. Auf dem Ziel gilt dasselbe für den lokalen Vergleich. Der Ordner bleibt beim Leeren des Caches nach einem Pull erhalten.
+
+Standardmäßig an; abschalten mit `'bb.contentpull.hashCache' => false`.
+
+### Gemeinsamer Datei-Cache (Ziel)
+
+Laufen mehrere Ziel-Umgebungen auf demselben Server – etwa Stage und PR-Previews –, holt sonst jede alle Medien selbst von der Quelle. Mit
+
+```php
+'bb.contentpull.cache' => '/var/cache/content-pull',
+```
+
+legt jede Umgebung heruntergeladene Dateien zusätzlich unter ihrem SHA-1 ab (`/var/cache/content-pull/ab/abcdef…`). Vor jedem Download wird zuerst dort nachgesehen; Treffer werden kopiert und gegen den Hash aus dem Manifest geprüft, beschädigte Einträge verworfen und neu geladen. So überträgt die Quelle jede Datei nur einmal, egal wie viele Umgebungen sie brauchen.
+
+Das Verzeichnis muss für alle Umgebungen dasselbe sein (z. B. ein Bind-Mount vom Host in jeden Container) und für den PHP-User beschreibbar. Aufräumen ist nicht nötig, solange der Platz reicht; sonst kann der Ordner jederzeit geleert werden.
 
 ## Quell-Endpunkte
 
@@ -265,5 +288,7 @@ Die Unit-Tests decken Pfad-Validierung, Manifest-Filterung, Diff und Optionen ab
 | `Diff` | Neu / geändert / gelöscht / übersprungen |
 | `Client` | HTTP zur Quelle über `Kirby\Http\Remote` |
 | `Puller` | Der Pull: Plan, Downloads, Löschen, Caches, Log |
+| `HashCache` | Hashes unveränderter Dateien wiederverwenden |
+| `ObjectCache` | Gemeinsamer, inhaltsadressierter Datei-Cache |
 | `Server` | Quell-Endpunkte |
 | `Command` | `kirby content:pull` |

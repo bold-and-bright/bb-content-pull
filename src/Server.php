@@ -36,7 +36,12 @@ final class Server
         @set_time_limit(0);
 
         $filter = new Filter($options, Plugin::languages($kirby));
-        $files  = Manifest::scan(Plugin::rootDirs($kirby), $filter, hash: $kirby->request()->get('hash') !== '0');
+        $files  = Manifest::scan(
+            Plugin::rootDirs($kirby),
+            $filter,
+            hash: $kirby->request()->get('hash') !== '0',
+            cache: Plugin::hashCache($kirby),
+        );
 
         return Response::json([
             'generated' => time(),

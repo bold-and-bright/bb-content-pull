@@ -24,10 +24,14 @@ final class Puller
 {
     private Log $log;
 
+    /** Files taken from the shared cache in the current run */
+    private int $cacheHits = 0;
+
     public function __construct(
         private readonly App $kirby,
         private readonly Client $client,
         string $actor = 'cli',
+        private readonly ?ObjectCache $cache = null,
     ) {
         $this->log = new Log(Plugin::logFile($kirby), $actor);
     }
@@ -56,7 +60,7 @@ final class Puller
             token: $token,
             timeout: (int) Plugin::option('timeout', 120),
             ca: $verify === false ? false : Remote::CA_INTERNAL,
-        ), $actor);
+        ), $actor, Plugin::objectCache());
     }
 
     public function client(): Client
@@ -79,17 +83,28 @@ final class Puller
         // Never rely on the source having applied the filter
         $remote = array_filter($remote, fn (array $entry) => $filter->accepts($entry['path']));
         $local  = Manifest::scan($rootDirs, $filter, hash: false);
+        $hashes = Plugin::hashCache($this->kirby);
 
+        // Local files are only hashed when their size matches the remote one,
+        // and then through the hash cache: unchanged files are not re-read
         $diff = Diff::compute(
             $remote,
             $local,
             $options,
-            function (string $path) use ($rootDirs): ?string {
+            function (string $path) use ($rootDirs, $local, $hashes): ?string {
                 $file = Paths::resolve($path, $rootDirs);
 
-                return $file !== null ? (sha1_file($file) ?: null) : null;
+                if ($file === null) {
+                    return null;
+                }
+
+                return $hashes !== null
+                    ? $hashes->get($path, $file, $local[$path]['size'], $local[$path]['mtime'])
+                    : (sha1_file($file) ?: null);
             }
         );
+
+        $hashes?->save();
 
         foreach ($rejected as $path) {
             $diff['skipped'][] = ['path' => $path, 'size' => 0, 'sha1' => null, 'mtime' => 0, 'reason' => 'invalid path'];
@@ -146,7 +161,10 @@ final class Puller
                 }
             };
 
-            $downloads = [...$plan['diff']['new'], ...$plan['diff']['changed']];
+            $downloads = $this->installFromCache(
+                [...$plan['diff']['new'], ...$plan['diff']['changed']],
+                $report
+            );
 
             if ($downloads !== []) {
                 $options->archive === true
@@ -160,11 +178,15 @@ final class Puller
                 $this->clearCaches();
             }
 
-            $plan['result'] = $result + ['duration' => round(microtime(true) - $started, 1)];
+            $plan['result'] = $result + [
+                'cached'   => $this->cacheHits,
+                'duration' => round(microtime(true) - $started, 1),
+            ];
 
             $this->log->write(sprintf(
-                'DONE written=%d deleted=%d failed=%d duration=%ss',
+                'DONE written=%d (cached=%d) deleted=%d failed=%d duration=%ss',
                 count($result['written']),
+                $this->cacheHits,
                 count($result['deleted']),
                 count($result['failed']),
                 $plan['result']['duration']
@@ -181,13 +203,50 @@ final class Puller
     }
 
     /**
+     * Installs every entry the shared cache already holds and returns the
+     * rest, which has to come from the source.
+     *
+     * @param array<int, array> $entries
+     * @return array<int, array>
+     */
+    private function installFromCache(array $entries, callable $report): array
+    {
+        $this->cacheHits = 0;
+
+        if ($this->cache === null) {
+            return $entries;
+        }
+
+        $missing = [];
+
+        foreach ($entries as $entry) {
+            if ($this->cache->has($entry['sha1']) === false) {
+                $missing[] = $entry;
+                continue;
+            }
+
+            try {
+                $this->install($entry, file: $this->cache->path($entry['sha1']));
+                $this->cacheHits++;
+                $report('write', $entry['path']);
+            } catch (Throwable) {
+                // A damaged cache entry is dropped and fetched again
+                $this->cache->forget($entry['sha1']);
+                $missing[] = $entry;
+            }
+        }
+
+        return $missing;
+    }
+
+    /**
      * @param array<int, array> $entries
      */
     private function downloadFiles(array $entries, callable $report): void
     {
         foreach ($entries as $entry) {
             try {
-                $this->write($entry, $this->client->download($entry['path']));
+                $this->install($entry, contents: $this->client->download($entry['path']));
                 $report('write', $entry['path']);
             } catch (Throwable $e) {
                 $report('fail', $entry['path'], $e->getMessage());
@@ -227,7 +286,7 @@ final class Puller
                         throw new RuntimeException('missing in archive');
                     }
 
-                    $this->write($entry, $contents);
+                    $this->install($entry, contents: $contents);
                     $report('write', $entry['path']);
                 } catch (Throwable $e) {
                     $report('fail', $entry['path'], $e->getMessage());
@@ -240,7 +299,15 @@ final class Puller
         }
     }
 
-    private function write(array $entry, string $contents): void
+    /**
+     * Writes one file atomically: temp file next to the target, checksum
+     * against the manifest, then rename. New downloads also go into the
+     * shared cache.
+     *
+     * @param string|null $contents downloaded contents, or
+     * @param string|null $file     a file to copy (cache entry)
+     */
+    private function install(array $entry, ?string $contents = null, ?string $file = null): void
     {
         $rootDirs = Plugin::rootDirs($this->kirby);
 
@@ -254,20 +321,28 @@ final class Puller
             throw new RuntimeException('unsafe target path');
         }
 
-        // Guards against files that changed on the source after the manifest
-        // was built and against truncated transfers
-        if (sha1($contents) !== $entry['sha1']) {
-            throw new RuntimeException('checksum mismatch — file changed on the source or transfer incomplete');
-        }
-
         $dir = dirname($target);
         Dir::make($dir);
 
         $temp = $dir . '/' . Paths::TEMP_PREFIX . bin2hex(random_bytes(6)) . '.tmp';
 
         try {
-            if (file_put_contents($temp, $contents, LOCK_EX) !== strlen($contents)) {
+            $written = $file !== null
+                ? copy($file, $temp)
+                : file_put_contents($temp, (string) $contents, LOCK_EX) === strlen((string) $contents);
+
+            if ($written === false) {
                 throw new RuntimeException('could not write ' . $temp);
+            }
+
+            // Guards against files that changed on the source after the
+            // manifest was built, truncated transfers and damaged cache entries
+            if (sha1_file($temp) !== $entry['sha1']) {
+                throw new RuntimeException('checksum mismatch — file changed on the source or transfer incomplete');
+            }
+
+            if ($file === null) {
+                $this->cache?->store($entry['sha1'], $temp);
             }
 
             // Keep the source's modification time (Kirby uses it for
@@ -345,6 +420,7 @@ final class Puller
         $keep = [
             $this->kirby->root('media') . '/panel',
             $this->kirby->root('media') . '/plugins',
+            Plugin::stateDir($this->kirby),
         ];
 
         foreach ([$this->kirby->root('cache'), $this->kirby->root('media')] as $root) {
