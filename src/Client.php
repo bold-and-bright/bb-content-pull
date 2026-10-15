@@ -82,10 +82,18 @@ final class Client
             'ca'      => $this->ca,
         ]);
 
-        $code = $remote->code();
+        $code    = $remote->code();
+        $content = (string) $remote->content();
+
+        // Remote's header callback references the Remote object, which holds
+        // the curl handle: a reference cycle that only the cycle collector
+        // frees. Hundreds of downloads would otherwise pile up open sockets
+        // until "Too many open files".
+        unset($remote);
+        gc_collect_cycles();
 
         if ($code !== 200) {
-            $message = json_decode((string) $remote->content(), true)['error'] ?? null;
+            $message = json_decode($content, true)['error'] ?? null;
 
             throw new RuntimeException(match ($code) {
                 401     => 'The source rejected the token (401)',
@@ -96,6 +104,6 @@ final class Client
             });
         }
 
-        return (string) $remote->content();
+        return $content;
     }
 }
