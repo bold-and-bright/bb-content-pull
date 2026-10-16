@@ -2,7 +2,7 @@
   "name": "bb/content-pull",
   "description": "Pull the content folder of a source environment (usually production) into a development or staging environment — granular by scope, page and language.",
   "type": "kirby-plugin",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "license": "MIT",
   "authors": [
     {
