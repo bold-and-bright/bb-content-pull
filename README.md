@@ -1,119 +1,119 @@
 # bb/content-pull
 
-Kirby-Plugin, mit dem eine Entwicklungs- oder Staging-Umgebung den `content/`-Ordner einer Quellumgebung (meist Production) **granular per CLI** übernimmt: nur Texte, nur Medien, nur eine Seite (mit oder ohne Unterseiten), nur bestimmte Sprachen, nur fehlende Dateien.
+Kirby plugin that lets a development or staging environment take over the `content/` folder of a source environment (usually production) **granularly via the CLI**: only texts, only media, only one page (with or without subpages), only certain languages, only missing files.
 
-- Vergleich über ein Manifest mit SHA-1-Hashes – unveränderte Dateien werden nicht übertragen.
-- Idempotent: Downloads landen in einer Temp-Datei, werden per Hash geprüft und erst dann umbenannt. Ein abgebrochener Pull hinterlässt keine halben Dateien; erneut ausführen genügt.
-- `--json` für maschinenlesbare Ausgabe – Skripte, CI und andere Tools können direkt damit arbeiten.
-- Optional: Plugin-Updates direkt aus dem Panel bzw. per CLI aus den GitHub-Releases.
-- Kirby 4 und 5, PHP ≥ 8.2, keine Abhängigkeiten außer Kirby (HTTP über `Kirby\Http\Remote`).
+- Compares via a manifest with SHA-1 hashes – unchanged files are not transferred.
+- Idempotent: downloads go to a temp file, are verified against their hash and only then renamed. An aborted pull leaves no half-written files; just run it again.
+- `--json` for machine-readable output – scripts, CI and other tools can work with it directly.
+- Optional: plugin updates straight from the Panel or via the CLI, from the GitHub releases.
+- Kirby 4 and 5, PHP ≥ 8.2, no dependencies besides Kirby (HTTP via `Kirby\Http\Remote`).
 
-Idee nach [zephir/kirby-contentsync](https://github.com/zephir-digital/kirby-contentsync), eigene Implementierung.
+Idea based on [zephir/kirby-contentsync](https://github.com/zephir-digital/kirby-contentsync), own implementation.
 
-## Inhalt
+## Contents
 
-- [Funktionsweise](#funktionsweise)
+- [How it works](#how-it-works)
 - [Installation](#installation)
-- [Konfiguration](#konfiguration)
+- [Configuration](#configuration)
 - [CLI](#cli)
 - [Caches](#caches)
-- [Plugin-Updates](#plugin-updates)
-- [Quell-Endpunkte](#quell-endpunkte)
-- [Sicherheit](#sicherheit)
-- [Entwicklung](#entwicklung)
+- [Plugin updates](#plugin-updates)
+- [Source endpoints](#source-endpoints)
+- [Security](#security)
+- [Development](#development)
 
-## Funktionsweise
+## How it works
 
 ```
-Ziel (dev/staging)                          Quelle (production)
-kirby content:pull ── GET /bb-content-pull/manifest ──▶  Liste: Pfad, sha1, Größe, mtime
-   │  lokales Manifest + Diff                              (bereits gefiltert)
-   ├─ pro Datei: GET /bb-content-pull/file?path=…  ──▶   einzelne Datei
-   │  oder:      GET /bb-content-pull/archive?…    ──▶   ZIP des gefilterten Sets (--archive)
-   ├─ Temp-Datei → sha1 prüfen → rename
-   ├─ optional: lokale Dateien löschen, die es in der Quelle nicht gibt (--delete)
-   └─ site/cache und media/ leeren, Log nach site/logs/content-pull.log
+Target (dev/staging)                         Source (production)
+kirby content:pull ── GET /bb-content-pull/manifest ──▶  list: path, sha1, size, mtime
+   │  local manifest + diff                                (already filtered)
+   ├─ per file: GET /bb-content-pull/file?path=…  ──▶    single file
+   │  or:       GET /bb-content-pull/archive?…    ──▶    ZIP of the filtered set (--archive)
+   ├─ temp file → verify sha1 → rename
+   ├─ optional: delete local files that do not exist on the source (--delete)
+   └─ clear site/cache and media/, log to site/logs/content-pull.log
 ```
 
-Pfade im Manifest beginnen immer mit ihrem Root: `content/1_about/default.de.txt`, `accounts/abc123/user.txt`.
+Paths in the manifest always start with their root: `content/1_about/default.en.txt`, `accounts/abc123/user.txt`.
 
-**Immer ausgeschlossen:** `.lock`, `.DS_Store`, `.gitkeep`, `.logins` (Kirbys Login-Drosselung in `site/accounts`) sowie Temp-Dateien des Plugins (`.bbpull-*`). Kirby-5-Änderungsstände (`_changes/`) nur mit `--include-changes`.
+**Always excluded:** `.lock`, `.DS_Store`, `.gitkeep`, `.logins` (Kirby's login throttling in `site/accounts`) and the plugin's temp files (`.bbpull-*`). Kirby 5 change versions (`_changes/`) only with `--include-changes`.
 
 ## Installation
 
-Auf **Quelle und Ziel** installieren – dasselbe Plugin übernimmt je nach Konfiguration die eine oder andere Rolle.
+Install on **both source and target** – the same plugin takes on one role or the other depending on its configuration.
 
-### Composer (empfohlen)
+### Composer (recommended)
 
 ```bash
-composer config repositories.bb-content-pull vcs git@github.com:bold-and-bright/bb-content-pull.git
+composer config repositories.bb-content-pull vcs https://github.com/bold-and-bright/bb-content-pull.git
 composer require bb/content-pull
 ```
 
-Das Paket ist vom Typ `kirby-plugin` und landet über den `getkirby/composer-installer` in `site/plugins/bb-content-pull`.
+The package is of type `kirby-plugin` and ends up in `site/plugins/bb-content-pull` via `getkirby/composer-installer`.
 
-### Manuell
+### Manual
 
-Repository nach `site/plugins/bb-content-pull` kopieren oder als Git-Submodul einbinden. Ohne Composer registriert `index.php` einen eigenen Autoloader.
+Download `bb-content-pull.zip` from the [latest release](https://github.com/bold-and-bright/bb-content-pull/releases/latest) and unpack it to `site/plugins/bb-content-pull`, or add the repository as a Git submodule. Without Composer, `index.php` registers its own autoloader.
 
 ### Kirby CLI
 
-Der Pull läuft über die [Kirby CLI](https://github.com/getkirby/cli). Entweder global (`composer global require getkirby/cli`) oder im Projekt:
+Pulling runs through the [Kirby CLI](https://github.com/getkirby/cli). Install it either globally (`composer global require getkirby/cli`) or in the project:
 
 ```bash
 composer require --dev getkirby/cli
 ```
 
-In DDEV-Projekten dann im Container: `ddev exec vendor/bin/kirby content:pull …`.
+In DDEV projects, run it inside the container: `ddev exec vendor/bin/kirby content:pull …`.
 
-## Konfiguration
+## Configuration
 
-Alle Optionen liegen unter `bb.contentpull.*`. **Als flache Punkt-Schlüssel setzen** – ein verschachteltes `'bb' => [...]`-Array überschreibt die Optionen anderer `bb.*`-Plugins.
+All options live under `bb.contentpull.*`. **Set them as flat dot keys** – a nested `'bb' => [...]` array overrides the options of other `bb.*` plugins.
 
-| Option | Seite | Default | Beschreibung |
+| Option | Side | Default | Description |
 | --- | --- | --- | --- |
-| `bb.contentpull.serve` | Quelle | `false` | Aktiviert die Quell-Endpunkte. Ohne `true` antworten sie mit 404. |
-| `bb.contentpull.token` | beide | – | Gemeinsames Secret. Erzeugen mit `openssl rand -hex 32`. Auf dem Ziel optional, wenn per Kirby-Login gezogen wird (`--user`). |
-| `bb.contentpull.roles` | Quelle | `['admin']` | Rollen, die sich mit ihren Kirby-Zugangsdaten zum Ziehen anmelden dürfen. Accounts bekommen nur Admins. |
-| `bb.contentpull.sessionTtl` | Quelle | `7200` | Gültigkeit des Session-Tokens nach einem Kirby-Login in Sekunden. |
-| `bb.contentpull.accounts` | Quelle | `false` | Erlaubt, `site/accounts` auszuliefern (für `--accounts`). |
-| `bb.contentpull.source` | Ziel | – | Basis-URL der Quelle, z. B. `https://www.example.com`. |
-| `bb.contentpull.timeout` | Ziel | `120` | HTTP-Timeout pro Request in Sekunden. |
-| `bb.contentpull.verify` | Ziel | `true` | TLS-Zertifikat der Quelle prüfen. Nur für lokale Quellen mit Self-Signed-Zertifikat auf `false`. |
-| `bb.contentpull.hashCache` | beide | `true` | Hashes unveränderter Dateien (gleiche Größe + mtime) wiederverwenden, siehe [Caches](#caches). |
-| `bb.contentpull.cache` | Ziel | – | Verzeichnis eines gemeinsamen Datei-Caches mehrerer Ziel-Umgebungen, siehe [Caches](#caches). |
-| `bb.contentpull.updates` | beide | `false` | Update aus dem Panel anbieten, siehe [Plugin-Updates](#plugin-updates). |
-| `bb.contentpull.updateRepository` | beide | `bold-and-bright/bb-content-pull` | GitHub-Repository der Releases. |
-| `bb.contentpull.updateApi` | beide | `https://api.github.com` | API-Basis-URL (z. B. GitHub Enterprise). |
+| `bb.contentpull.serve` | source | `false` | Enables the source endpoints. Without `true` they answer with 404. |
+| `bb.contentpull.token` | both | – | Shared secret. Generate with `openssl rand -hex 32`. Optional on the target when pulling with a Kirby login (`--user`). |
+| `bb.contentpull.roles` | source | `['admin']` | Roles allowed to log in with their Kirby credentials to pull. Only admins get accounts. |
+| `bb.contentpull.sessionTtl` | source | `7200` | Lifetime of the session token after a Kirby login, in seconds. |
+| `bb.contentpull.accounts` | source | `false` | Allows serving `site/accounts` (for `--accounts`). |
+| `bb.contentpull.source` | target | – | Base URL of the source, e.g. `https://www.example.com`. |
+| `bb.contentpull.timeout` | target | `120` | HTTP timeout per request in seconds. |
+| `bb.contentpull.verify` | target | `true` | Verify the source's TLS certificate. Set to `false` only for local sources with self-signed certificates. |
+| `bb.contentpull.hashCache` | both | `true` | Reuse hashes of unchanged files (same size + mtime), see [Caches](#caches). |
+| `bb.contentpull.cache` | target | – | Directory of a file cache shared by several target environments, see [Caches](#caches). |
+| `bb.contentpull.updates` | both | `false` | Offer updates in the Panel, see [Plugin updates](#plugin-updates). |
+| `bb.contentpull.updateRepository` | both | `bold-and-bright/bb-content-pull` | GitHub repository of the releases. |
+| `bb.contentpull.updateApi` | both | `https://api.github.com` | API base URL (e.g. GitHub Enterprise). |
 
-Den Token nicht ins Repository committen – aus `.env` oder einer nicht versionierten Datei lesen.
+Do not commit the token to the repository – read it from `.env` or another unversioned file.
 
-### `site/config/config.php` (gemeinsam)
+### `site/config/config.php` (shared)
 
 ```php
 <?php
 
 return [
-    // Token aus der Umgebung, nicht im Repo
+    // token from the environment, not from the repo
     'bb.contentpull.token' => $_ENV['CONTENT_PULL_TOKEN'] ?? null,
 ];
 ```
 
-### `site/config/config.production.php` (Quelle)
+### `site/config/config.www.example.com.php` (source)
 
-Kirby lädt `config.{host}.php` passend zum Hostnamen, z. B. `config.www.example.com.php`.
+Kirby loads `config.{host}.php` matching the host name.
 
 ```php
 <?php
 
 return [
     'bb.contentpull.serve' => true,
-    // optional: Benutzerkonten mit ausliefern (für --accounts)
+    // optional: also serve user accounts (for --accounts)
     // 'bb.contentpull.accounts' => true,
 ];
 ```
 
-### `site/config/config.staging.php` (Ziel)
+### `site/config/config.staging.example.com.php` (target)
 
 ```php
 <?php
@@ -123,19 +123,19 @@ return [
 ];
 ```
 
-### Lokale Entwicklung (Ziel, z. B. `config.example.ddev.site.php`)
+### Local development (target, e.g. `config.example.ddev.site.php`)
 
 ```php
 <?php
 
 return [
     'bb.contentpull.source' => 'https://www.example.com',
-    // oder Staging als Quelle – dort dann zusätzlich serve => true:
+    // or staging as the source – it then also needs serve => true:
     // 'bb.contentpull.source' => 'https://staging.example.com',
 ];
 ```
 
-Eine Umgebung kann Quelle **und** Ziel sein (Staging holt von Production und liefert an Dev). Ein Pull auf sich selbst wird abgelehnt.
+An environment can be source **and** target at the same time (staging pulls from production and serves dev). Pulling from itself is refused.
 
 ## CLI
 
@@ -147,88 +147,88 @@ kirby content:pull [--scope=texts|media|all|accounts] [--page=<id>] [--recursive
                    [--user=<email> [--password=<pw>] | --login]
 ```
 
-| Option | Beschreibung |
+| Option | Description |
 | --- | --- |
-| `--scope` | `texts` = alle `*.txt` inkl. Datei-Metadaten (`bild.jpg.de.txt`), `media` = alle anderen Dateien, `all` (Default), `accounts` = nur `site/accounts`, ohne Content. |
-| `--page` | Nur dieser Seitenordner, als Kirby-Page-ID (`ueber-uns/team`). Sortiernummern und `_drafts` werden ignoriert, Entwürfe sind also adressierbar. `site` = nur `site.*.txt` und Site-Dateien. |
-| `--recursive` | Mit `--page`: inkl. aller Unterseiten. `--page=site --recursive` = alles. |
-| `--lang` | Nur Textdateien dieser Sprachen. Medien sind sprachunabhängig und bleiben drin. |
-| `--missing-only` | Nur Dateien holen, die lokal fehlen; vorhandene werden nicht verglichen. |
-| `--max-size` | Medien oberhalb dieser Größe überspringen (`500K`, `20M`, `1G`). Textdateien nie. |
-| `--delete` | Lokale Dateien **im gewählten Scope** löschen, die es in der Quelle nicht gibt. Leere Seitenordner werden entfernt. Default aus. |
-| `--dry-run` | Nur die Diff-Liste ausgeben: neu / geändert / gelöscht / übersprungen. |
-| `--accounts` | Zusätzlich zum Content `site/accounts` syncen. Accounts werden immer komplett übernommen, Scope/Page/Lang gelten nur für Content. Nur Accounts: `--scope=accounts`. Beides braucht `bb.contentpull.accounts` auf der Quelle. |
-| `--include-changes` | Kirby-5-`_changes`-Ordner (ungespeicherte Panel-Änderungen) mitnehmen. |
-| `--archive` | Das gefilterte Set als ein ZIP holen statt Datei für Datei – sinnvoll für viele Medien. Übernommen werden trotzdem nur die Dateien aus dem Diff. Braucht `ext-zip` auf beiden Seiten. |
-| `--json` | Ein JSON-Dokument auf stdout statt Fortschrittsausgabe. |
-| `--user` | Statt des Tokens mit diesem Kirby-Benutzer (E-Mail) der Quelle anmelden. Ohne `--password` wird das Passwort verdeckt abgefragt. |
-| `--password` | Passwort zu `--user`. Besser weglassen und abfragen lassen – Argumente landen in der Shell-History und sind in der Prozessliste sichtbar. |
-| `--login` | E-Mail und Passwort abfragen. |
+| `--scope` | `texts` = all `*.txt` incl. file metadata (`image.jpg.en.txt`), `media` = all other files, `all` (default), `accounts` = only `site/accounts`, no content. |
+| `--page` | Only this page folder, as a Kirby page ID (`about/team`). Sorting numbers and `_drafts` are ignored, so drafts can be addressed too. `site` = only `site.*.txt` and site files. |
+| `--recursive` | With `--page`: including all subpages. `--page=site --recursive` = everything. |
+| `--lang` | Only text files of these languages. Media is language-independent and stays included. |
+| `--missing-only` | Only fetch files that are missing locally; existing ones are not compared. |
+| `--max-size` | Skip media above this size (`500K`, `20M`, `1G`). Never applies to text files. |
+| `--delete` | Delete local files **in the selected scope** that do not exist on the source. Empty page folders are removed. Off by default. |
+| `--dry-run` | Only print the diff: new / changed / deleted / skipped. |
+| `--accounts` | Also sync `site/accounts` in addition to the content. Accounts are always taken over completely; scope/page/lang only apply to content. Accounts only: `--scope=accounts`. Both need `bb.contentpull.accounts` on the source. |
+| `--include-changes` | Include Kirby 5 `_changes` folders (unsaved Panel changes). |
+| `--archive` | Fetch the filtered set as one ZIP instead of file by file – useful for many media files. Still only the files from the diff are applied. Needs `ext-zip` on both sides. |
+| `--json` | One JSON document on stdout instead of progress output. |
+| `--user` | Log in to the source with this Kirby user (email) instead of the token. Without `--password`, the password is prompted for (hidden input). |
+| `--password` | Password for `--user`. Better leave it out and let it be prompted – arguments end up in the shell history and are visible in the process list. |
+| `--login` | Prompt for email and password. |
 
-Exit-Code `0` bei Erfolg, `1` bei Fehlern (Konfiguration, Quelle nicht erreichbar, einzelne Dateien fehlgeschlagen).
+Exit code `0` on success, `1` on errors (configuration, source unreachable, individual files failed).
 
-### Beispiele
+### Examples
 
 ```bash
-# Was würde sich ändern?
+# What would change?
 kirby content:pull --dry-run
 
-# Alles holen
+# Fetch everything
 kirby content:pull
 
-# Nur Texte – schnell, ohne Medien
+# Texts only – fast, without media
 kirby content:pull --scope=texts
 
-# Nur Medien, die lokal fehlen, ohne große Videos
+# Only media missing locally, without large videos
 kirby content:pull --scope=media --missing-only --max-size=20M
 
-# Eine Seite mit allen Unterseiten
-kirby content:pull --page=leistungen --recursive
+# One page with all subpages
+kirby content:pull --page=services --recursive
 
-# Nur die englischen Texte einer Seite
-kirby content:pull --scope=texts --page=ueber-uns --lang=en
+# Only the English texts of one page
+kirby content:pull --scope=texts --page=about --lang=en
 
-# Site-Einstellungen (site.*.txt, Logo etc.)
+# Site settings (site.*.txt, logo etc.)
 kirby content:pull --page=site
 
-# Exakter Spiegel inkl. Löschen – erst ansehen, dann ausführen
+# Exact mirror incl. deletions – review first, then run
 kirby content:pull --delete --dry-run
 kirby content:pull --delete
 
-# Erstbefüllung mit vielen Medien in einem ZIP
+# Initial fill with many media files in one ZIP
 kirby content:pull --scope=media --archive
 
-# Inklusive Benutzerkonten
+# Including user accounts
 kirby content:pull --accounts
 
-# Nur die Benutzerkonten (z. B. für den Panel-Login auf Stage)
+# User accounts only (e.g. for the Panel login on staging)
 kirby content:pull --scope=accounts
 
 # In DDEV
 ddev exec vendor/bin/kirby content:pull --scope=texts
 ```
 
-### Mit Kirby-Zugangsdaten statt Token
+### With Kirby credentials instead of the token
 
-Entwickler:innen können mit ihrem eigenen Kirby-Account der Quelle ziehen – der Token muss dann auf dem Ziel gar nicht bekannt sein:
+Developers can pull with their own Kirby account on the source – the target then does not need to know the token at all:
 
 ```bash
-# Passwort wird verdeckt abgefragt
+# password is prompted for (hidden)
 kirby content:pull --user=dev@example.com --dry-run
 
-# E-Mail und Passwort abfragen
+# prompt for email and password
 kirby content:pull --login
 
-# Nicht-interaktiv (z. B. Skripte) – Passwort landet in der Shell-History
+# non-interactive (e.g. scripts) – the password ends up in the shell history
 kirby content:pull --user=dev@example.com --password='…' --json
 ```
 
-Ablauf: Die CLI meldet sich einmal per `POST /bb-content-pull/login` an (HTTP Basic, Fallback-Header `X-Content-Pull-Auth`). Die Quelle prüft über Kirbys `Auth::validatePassword()` – inklusive Sperre nach zu vielen Fehlversuchen und Verzögerung bei falschem Passwort – und gibt einen signierten Session-Token zurück (Standard 2 Stunden), mit dem alle weiteren Requests laufen. Der Token ist mit dem Passwort-Hash des Benutzers signiert: Ändert sich das Passwort, ist er sofort ungültig. Erlaubt sind nur Rollen aus `bb.contentpull.roles` (Standard: Admins); Accounts bekommen nur Admins. Eine zweite Stufe (Login-Code) wird dabei nicht abgefragt. Abfragen erscheinen auf stderr, `--json` auf stdout bleibt sauber. Im Log steht der Benutzer: `[cli:dev@example.com]`.
+How it works: the CLI logs in once via `POST /bb-content-pull/login` (HTTP Basic, fallback header `X-Content-Pull-Auth`). The source checks the credentials with Kirby's `Auth::validatePassword()` – including the lockout after too many failed attempts and the delay on a wrong password – and returns a signed session token (2 hours by default) used for all further requests. The token is signed with the user's password hash: when the password changes, it becomes invalid immediately. Only roles from `bb.contentpull.roles` are allowed (default: admins); only admins get accounts. A second factor (login code) is not requested. Prompts go to stderr, so `--json` on stdout stays clean. The log records the user: `[cli:dev@example.com]`.
 
-### JSON-Ausgabe (für Skripte und CI)
+### JSON output (for scripts and CI)
 
 ```bash
-kirby content:pull --page=kontakt --dry-run --json
+kirby content:pull --page=contact --dry-run --json
 ```
 
 ```json
@@ -236,12 +236,12 @@ kirby content:pull --page=kontakt --dry-run --json
     "ok": true,
     "error": null,
     "source": "https://www.example.com",
-    "options": { "scope": "all", "page": "kontakt", "recursive": false, "dryRun": true, "…": "…" },
+    "options": { "scope": "all", "page": "contact", "recursive": false, "dryRun": true, "…": "…" },
     "diff": {
-        "new":     [{ "path": "content/4_kontakt/default.de.txt", "sha1": "839f…", "size": 30, "mtime": 1792077152 }],
+        "new":     [{ "path": "content/4_contact/default.en.txt", "sha1": "839f…", "size": 30, "mtime": 1792077152 }],
         "changed": [],
         "deleted": [],
-        "skipped": [{ "path": "content/4_kontakt/map.pdf", "size": 9000000, "reason": "size", "…": "…" }],
+        "skipped": [{ "path": "content/4_contact/map.pdf", "size": 9000000, "reason": "size", "…": "…" }],
         "unchanged": 0
     },
     "summary": { "new": 1, "changed": 0, "deleted": 0, "skipped": 1, "unchanged": 0, "bytes": 30 },
@@ -249,116 +249,116 @@ kirby content:pull --page=kontakt --dry-run --json
 }
 ```
 
-Ohne `--dry-run` enthält `result` die Listen `written`, `deleted`, `failed` (`[{path, error}]`), `cached` (Anzahl der Dateien aus dem gemeinsamen Cache) und `duration`. Bei einem Abbruch: `{"ok": false, "error": "…"}` und Exit-Code 1.
+Without `--dry-run`, `result` contains the lists `written`, `deleted`, `failed` (`[{path, error}]`), `cached` (number of files taken from the shared cache) and `duration`. On abort: `{"ok": false, "error": "…"}` and exit code 1.
 
-`skipped.reason` ist `size` (über `--max-size`) oder `invalid path` (von der Quelle gelieferter Pfad, der die Validierung nicht besteht – wird nie geschrieben).
+`skipped.reason` is `size` (above `--max-size`) or `invalid path` (a path delivered by the source that fails validation – never written).
 
-### Nach dem Pull
+### After the pull
 
-- `site/cache` und `media/` werden geleert (Kirby-Cache-API bzw. `Kirby\Filesystem\Dir`). `media/panel`, `media/plugins` und Dotfiles (`.gitkeep`, `.htaccess`) bleiben – sonst bricht ein gerade geöffnetes Panel ab bzw. verschwinden versionierte Platzhalter.
-- Jeder Lauf wird in `site/logs/content-pull.log` protokolliert: Start mit Optionen, jede geschriebene / gelöschte / fehlgeschlagene Datei, Abschluss.
-- Es läuft immer nur ein Pull pro Installation gleichzeitig (Lock-Datei im System-Temp).
+- `site/cache` and `media/` are cleared (Kirby cache API and `Kirby\Filesystem\Dir`). `media/panel`, `media/plugins` and dotfiles (`.gitkeep`, `.htaccess`) are kept – otherwise an open Panel would break and versioned placeholders would disappear.
+- Every run is logged to `site/logs/content-pull.log`: start with options, every written / deleted / failed file, completion.
+- Only one pull runs per installation at a time (lock file in the system temp directory).
 
 ## Caches
 
-### Hash-Cache (Quelle und Ziel)
+### Hash cache (source and target)
 
-Ohne Cache liest die Quelle für jedes Manifest alle Dateien im Scope komplett, um ihren SHA-1 zu berechnen – bei einer großen Medienbibliothek bei jedem Pull Hunderte MB. Der Hash-Cache merkt sich pro Pfad Größe, mtime und Hash in `site/cache/bb-content-pull/hashes.json` (bzw. dem `cache`-Root) und hasht nur Dateien neu, die sich geändert haben. Auf dem Ziel gilt dasselbe für den lokalen Vergleich. Der Ordner bleibt beim Leeren des Caches nach einem Pull erhalten.
+Without a cache, the source reads every file in scope completely for each manifest to compute its SHA-1 – with a large media library that is hundreds of MB per pull. The hash cache remembers size, mtime and hash per path in `site/cache/bb-content-pull/hashes.json` (or the `cache` root) and only re-hashes files that changed. The same applies to the local comparison on the target. The folder is kept when the cache is cleared after a pull.
 
-Standardmäßig an; abschalten mit `'bb.contentpull.hashCache' => false`.
+On by default; turn it off with `'bb.contentpull.hashCache' => false`.
 
-### Gemeinsamer Datei-Cache (Ziel)
+### Shared file cache (target)
 
-Laufen mehrere Ziel-Umgebungen auf demselben Server – etwa Stage und PR-Previews –, holt sonst jede alle Medien selbst von der Quelle. Mit
+If several target environments run on the same server – staging and PR previews, for example – each would otherwise fetch all media from the source itself. With
 
 ```php
 'bb.contentpull.cache' => '/var/cache/content-pull',
 ```
 
-legt jede Umgebung heruntergeladene Dateien zusätzlich unter ihrem SHA-1 ab (`/var/cache/content-pull/ab/abcdef…`). Vor jedem Download wird zuerst dort nachgesehen; Treffer werden kopiert und gegen den Hash aus dem Manifest geprüft, beschädigte Einträge verworfen und neu geladen. So überträgt die Quelle jede Datei nur einmal, egal wie viele Umgebungen sie brauchen.
+every environment additionally stores downloaded files under their SHA-1 (`/var/cache/content-pull/ab/abcdef…`). Before each download, the cache is checked first; hits are copied and verified against the hash from the manifest, damaged entries are discarded and downloaded again. This way the source transfers each file only once, no matter how many environments need it.
 
-Das Verzeichnis muss für alle Umgebungen dasselbe sein (z. B. ein Bind-Mount vom Host in jeden Container) und für den PHP-User beschreibbar. Aufräumen ist nicht nötig, solange der Platz reicht; sonst kann der Ordner jederzeit geleert werden.
+The directory must be the same for all environments (e.g. a bind mount from the host into each container) and writable for the PHP user. No cleanup is needed as long as there is enough space; otherwise the folder can be emptied at any time.
 
-## Plugin-Updates
+## Plugin updates
 
-Zwei Wege, je nach Projekt:
+Two ways, depending on the project:
 
-**Mit Git-Deploy (empfohlen):** Plugin per Composer einbinden und Updates als Pull Request kommen lassen (z. B. über einen Composer-Update-Bot, Dependabot oder Renovate). Ein Update im Panel würde vom nächsten Deploy überschrieben.
+**With Git-based deployment (recommended):** install the plugin via Composer and receive updates as pull requests (e.g. via a Composer update bot, Dependabot or Renovate). An update in the Panel would be overwritten by the next deployment.
 
-**Ohne Git-Deploy (optional):** Update direkt aus dem Panel oder per CLI, aus den GitHub-Releases dieses Repositories.
+**Without Git-based deployment (optional):** update directly from the Panel or via the CLI, from the GitHub releases of this repository.
 
 ```php
 'bb.contentpull.updates' => true,
 ```
 
-- **Panel:** Kein eigener Menüpunkt – unter *System → Plugins* zeigt die Versionsspalte von `bb/content-pull` den Update-Status (wie bei Kirbys eigenen Update-Hinweisen). Das Dropdown führt über „Informationen zur Version“ zur Ansicht *System › Content Pull Update* mit Release-Notes, „Aktualisieren“ und „Vorherige Version wiederherstellen“. Ohne die Option bleibt die Systemseite unverändert.
-- **CLI** (unabhängig von der Option):
+- **Panel:** no menu entry of its own – under *System → Plugins*, the version column of `bb/content-pull` shows the update status (like Kirby's own update notices). Its dropdown leads to the *System › Content Pull Update* view with the release notes and buttons to update or restore the previous version. Without the option, the system view stays unchanged. (The view's texts are currently German.)
+- **CLI** (independent of the option):
   ```bash
-  kirby content-pull:update --check        # installierte und neueste Version
-  kirby content-pull:update                # auf die neueste Version
+  kirby content-pull:update --check        # installed and latest version
+  kirby content-pull:update                # update to the latest version
   kirby content-pull:update --version=1.4.0
-  kirby content-pull:update --rollback     # vorherige Version zurück
+  kirby content-pull:update --rollback     # back to the previous version
   ```
 
-Ablauf: Release über die GitHub-API ermitteln (6 Stunden gecacht), `bb-content-pull.zip` und `bb-content-pull.zip.sha256` laden, Prüfsumme vergleichen, nur Einträge unterhalb von `bb-content-pull/` entpacken (keine `..`, keine Symlinks), dann per `rename` austauschen. Die bisherige Version bleibt als `site/plugins/.bb-content-pull.backup` liegen – Kirby lädt Ordner mit führendem Punkt nicht. Danach wird der Opcache geleert; jedes Update steht im Log.
+How it works: determine the release via the GitHub API (cached for 6 hours), download `bb-content-pull.zip` and `bb-content-pull.zip.sha256`, compare the checksum, unpack only entries below `bb-content-pull/` (no `..`, no symlinks), then swap the folders via `rename`. The previous version stays as `site/plugins/.bb-content-pull.backup` – Kirby does not load folders with a leading dot. Afterwards the opcache is reset; every update is logged.
 
-Voraussetzungen: öffentliches Repository (die API wird ohne Token abgefragt), PHP darf in `site/plugins` schreiben, `ext-zip`. Das Panel weist darauf hin, wenn das Projekt ein Git-Checkout ist oder das Plugin per Composer installiert wurde.
+Requirements: public repository (the API is queried without a token), PHP may write to `site/plugins`, `ext-zip`. The Panel shows a hint if the project is a Git checkout or the plugin was installed via Composer.
 
-### Release erstellen
+### Creating a release
 
-1. `version` in `composer.json` erhöhen und committen.
-2. Taggen und pushen: `git tag v1.4.0 && git push origin v1.4.0`.
-3. Der Workflow `.github/workflows/release.yml` führt die Tests aus, prüft Tag gegen `composer.json`, baut das ZIP per `git archive` (ohne Tests und CI-Dateien, siehe `.gitattributes`) samt SHA-256 und hängt beides an das GitHub-Release.
+1. Increase `version` in `composer.json` and commit.
+2. Tag and push: `git tag v1.4.0 && git push origin v1.4.0`.
+3. The workflow `.github/workflows/release.yml` runs the tests, checks the tag against `composer.json`, builds the ZIP via `git archive` (without tests and CI files, see `.gitattributes`) plus its SHA-256 and attaches both to the GitHub release.
 
-## Quell-Endpunkte
+## Source endpoints
 
-Nur aktiv mit `bb.contentpull.serve => true`. Authentifizierung per `Authorization: Bearer <token>` – gemeinsamer Token oder Session-Token aus `/login`; als Fallback für Hoster, die den Authorization-Header verwerfen, auch `X-Content-Pull-Token: <token>`. Ohne gültigen Token: `401`.
+Only active with `bb.contentpull.serve => true`. Authentication via `Authorization: Bearer <token>` – the shared token or a session token from `/login`; as a fallback for hosts that drop the Authorization header, `X-Content-Pull-Token: <token>` works too. Without a valid token: `401`.
 
-| Endpunkt | Beschreibung |
+| Endpoint | Description |
 | --- | --- |
-| `GET /bb-content-pull/manifest` | JSON `{generated, languages, files: [{path, sha1, size, mtime}]}`. Akzeptiert `scope`, `page`, `recursive`, `lang`, `accounts`, `include-changes`; `hash=0` liefert eine billige Liste ohne Hashes. |
-| `GET /bb-content-pull/file?path=…` | Einzelne Datei, immer als `application/octet-stream`-Download, gestreamt. |
-| `GET /bb-content-pull/archive?…` | ZIP des gefilterten Sets (gleiche Parameter wie `manifest`, zusätzlich `max-size`). Medien unkomprimiert gespeichert. |
-| `POST /bb-content-pull/login` | Kirby-Zugangsdaten per HTTP Basic (oder `X-Content-Pull-Auth: base64(email:passwort)`) → `{token, expires, user, role}`. Der Token gilt dann wie der gemeinsame Token. |
+| `GET /bb-content-pull/manifest` | JSON `{generated, languages, files: [{path, sha1, size, mtime}]}`. Accepts `scope`, `page`, `recursive`, `lang`, `accounts`, `include-changes`; `hash=0` returns a cheap list without hashes. |
+| `GET /bb-content-pull/file?path=…` | Single file, always as an `application/octet-stream` download, streamed. |
+| `GET /bb-content-pull/archive?…` | ZIP of the filtered set (same parameters as `manifest`, plus `max-size`). Media is stored uncompressed. |
+| `POST /bb-content-pull/login` | Kirby credentials via HTTP Basic (or `X-Content-Pull-Auth: base64(email:password)`) → `{token, expires, user, role}`. The token then works like the shared token. |
 
 ```bash
-curl -H "Authorization: Bearer $TOKEN" "https://www.example.com/bb-content-pull/manifest?scope=texts&page=ueber-uns"
+curl -H "Authorization: Bearer $TOKEN" "https://www.example.com/bb-content-pull/manifest?scope=texts&page=about"
 ```
 
-## Sicherheit
+## Security
 
-- Alle Pfade – in Anfragen an die Quelle **und** im Manifest, das das Ziel empfängt – laufen durch `Paths::normalize()`: keine absoluten Pfade, kein `..`/`.`, keine Backslashes, Steuerzeichen oder Laufwerksbuchstaben, nur unterhalb von `content/` (bzw. `accounts/`, wenn erlaubt).
-- `Paths::resolve()` prüft zusätzlich per `realpath`, dass das Ziel innerhalb des Roots liegt; Symlinks nach außen werden abgelehnt. Die Quelle liefert keine Symlinks aus.
-- ZIP-Archive werden nie blind entpackt, sondern Eintrag für Eintrag per Name gelesen und gegen den Hash aus dem Manifest geprüft.
-- Token-Vergleich mit `hash_equals`. Ausgelieferte Dateien sind immer Downloads (`nosniff`), nichts wird gerendert.
-- `site/accounts` enthält Passwort-Hashes: `bb.contentpull.accounts` nur aktivieren, wenn das wirklich gebraucht wird, und das Ziel (Stage, Previews) nicht öffentlich zugänglich machen. Mit gemeinsamem Datei-Cache liegen die Account-Dateien auch dort.
-- Ohne `bb.contentpull.accounts` lehnt die Quelle jede Anfrage mit Accounts ab (`403`).
+- All paths – in requests to the source **and** in the manifest the target receives – go through `Paths::normalize()`: no absolute paths, no `..`/`.`, no backslashes, control characters or drive letters, only below `content/` (or `accounts/`, if allowed).
+- `Paths::resolve()` additionally checks via `realpath` that the target lies inside the root; symlinks pointing outside are rejected. The source never serves symlinks.
+- ZIP archives are never extracted blindly but read entry by entry by name and verified against the hash from the manifest.
+- Token comparison with `hash_equals`. Served files are always downloads (`nosniff`); nothing is rendered.
+- `site/accounts` contains password hashes: only enable `bb.contentpull.accounts` when really needed, and do not make the target (staging, previews) publicly accessible. With the shared file cache, the account files are stored there as well.
+- Without `bb.contentpull.accounts`, the source rejects every request involving accounts (`403`).
 
-## Entwicklung
+## Development
 
 ```bash
 composer install
 composer test
 ```
 
-Die Unit-Tests decken Pfad-Validierung, Manifest-Filterung, Diff und Optionen ab und kommen ohne Kirby aus.
+The unit tests cover path validation, manifest filtering, diff, options, caches and session tokens, and run without Kirby.
 
-| Klasse | Aufgabe |
+| Class | Purpose |
 | --- | --- |
-| `Paths` | Pfad-Validierung, Page-ID- und Sprach-Erkennung, Ausschlüsse |
-| `Options` | Optionen aus CLI-Argumenten bzw. Query |
-| `Filter` | Welche Pfade gehören zu einem Pull (Scope, Page, Sprachen) |
-| `Manifest` | Dateien scannen bzw. entferntes Manifest validieren |
-| `Diff` | Neu / geändert / gelöscht / übersprungen |
-| `Client` | HTTP zur Quelle über `Kirby\Http\Remote` |
-| `Puller` | Der Pull: Plan, Downloads, Löschen, Caches, Log |
-| `HashCache` | Hashes unveränderter Dateien wiederverwenden |
-| `ObjectCache` | Gemeinsamer, inhaltsadressierter Datei-Cache |
-| `Server` | Quell-Endpunkte inkl. Kirby-Login |
-| `SessionToken` | Signierter, kurzlebiger Token nach dem Kirby-Login |
-| `Updater`, `UpdateApi`, `UpdateCommand` | Optionales Self-Update aus GitHub-Releases (Panel + CLI) |
+| `Paths` | Path validation, page ID and language detection, exclusions |
+| `Options` | Options from CLI arguments or the query |
+| `Filter` | Which paths belong to a pull (scope, page, languages) |
+| `Manifest` | Scan files and validate a remote manifest |
+| `Diff` | New / changed / deleted / skipped |
+| `Client` | HTTP to the source via `Kirby\Http\Remote` |
+| `Puller` | The pull: plan, downloads, deletions, caches, log |
+| `HashCache` | Reuse hashes of unchanged files |
+| `ObjectCache` | Shared, content-addressed file cache |
+| `Server` | Source endpoints incl. Kirby login |
+| `SessionToken` | Signed, short-lived token after a Kirby login |
+| `Updater`, `UpdateApi`, `UpdateCommand` | Optional self-update from GitHub releases (Panel + CLI) |
 | `Command` | `kirby content:pull` |
 
-## Lizenz
+## License
 
-MIT – siehe [LICENSE](LICENSE).
+MIT – see [LICENSE](LICENSE).
