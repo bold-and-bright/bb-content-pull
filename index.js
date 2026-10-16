@@ -70,6 +70,7 @@
           <pre v-if="status.available && latest.notes" class="k-content-pull-update-notes">{{ latest.notes }}</pre>
 
           <k-button-group>
+            <k-button icon="angle-left" link="system">System</k-button>
             <k-button
               v-if="status.available"
               icon="download"

@@ -55,9 +55,10 @@ Kirby::plugin('bb/content-pull', [
         'content-pull:update' => \BB\ContentPull\UpdateCommand::definition(),
     ],
 
-    // Optional self-update from GitHub releases (bb.contentpull.updates)
+    // Optional self-update from GitHub releases (bb.contentpull.updates):
+    // status in the plugin table of /panel/system plus an update view below it
     'areas' => [
-        'content-pull-update' => fn (Kirby $kirby) => \BB\ContentPull\UpdateApi::area($kirby),
+        'system' => fn (Kirby $kirby) => \BB\ContentPull\UpdateApi::systemArea($kirby),
     ],
     'api' => [
         'routes' => [

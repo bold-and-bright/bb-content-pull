@@ -291,7 +291,7 @@ Zwei Wege, je nach Projekt:
 'bb.contentpull.updates' => true,
 ```
 
-- **Panel:** Für Admins erscheint der Menüpunkt *Content Pull Update*, sobald eine neuere Version oder ein Backup vorliegt – mit Release-Notes, „Aktualisieren“ und „Vorherige Version wiederherstellen“.
+- **Panel:** Kein eigener Menüpunkt – unter *System → Plugins* zeigt die Versionsspalte von `bb/content-pull` den Update-Status (wie bei Kirbys eigenen Update-Hinweisen). Das Dropdown führt über „Informationen zur Version“ zur Ansicht *System › Content Pull Update* mit Release-Notes, „Aktualisieren“ und „Vorherige Version wiederherstellen“. Ohne die Option bleibt die Systemseite unverändert.
 - **CLI** (unabhängig von der Option):
   ```bash
   kirby content-pull:update --check        # installierte und neueste Version
