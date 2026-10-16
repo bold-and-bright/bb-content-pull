@@ -4,7 +4,7 @@ Kirby-Plugin, mit dem eine Entwicklungs- oder Staging-Umgebung den `content/`-Or
 
 - Vergleich über ein Manifest mit SHA-1-Hashes – unveränderte Dateien werden nicht übertragen.
 - Idempotent: Downloads landen in einer Temp-Datei, werden per Hash geprüft und erst dann umbenannt. Ein abgebrochener Pull hinterlässt keine halben Dateien; erneut ausführen genügt.
-- `--json` für maschinenlesbare Ausgabe – Claude, Skripte und CI können direkt damit arbeiten.
+- `--json` für maschinenlesbare Ausgabe – Skripte, CI und andere Tools können direkt damit arbeiten.
 - Optional: Plugin-Updates direkt aus dem Panel bzw. per CLI aus den GitHub-Releases.
 - Kirby 4 und 5, PHP ≥ 8.2, keine Abhängigkeiten außer Kirby (HTTP über `Kirby\Http\Remote`).
 
@@ -219,13 +219,13 @@ kirby content:pull --user=dev@example.com --dry-run
 # E-Mail und Passwort abfragen
 kirby content:pull --login
 
-# Nicht-interaktiv (z. B. Skripte, Claude) – Passwort landet in der Shell-History
+# Nicht-interaktiv (z. B. Skripte) – Passwort landet in der Shell-History
 kirby content:pull --user=dev@example.com --password='…' --json
 ```
 
 Ablauf: Die CLI meldet sich einmal per `POST /bb-content-pull/login` an (HTTP Basic, Fallback-Header `X-Content-Pull-Auth`). Die Quelle prüft über Kirbys `Auth::validatePassword()` – inklusive Sperre nach zu vielen Fehlversuchen und Verzögerung bei falschem Passwort – und gibt einen signierten Session-Token zurück (Standard 2 Stunden), mit dem alle weiteren Requests laufen. Der Token ist mit dem Passwort-Hash des Benutzers signiert: Ändert sich das Passwort, ist er sofort ungültig. Erlaubt sind nur Rollen aus `bb.contentpull.roles` (Standard: Admins); Accounts bekommen nur Admins. Eine zweite Stufe (Login-Code) wird dabei nicht abgefragt. Abfragen erscheinen auf stderr, `--json` auf stdout bleibt sauber. Im Log steht der Benutzer: `[cli:dev@example.com]`.
 
-### JSON-Ausgabe (für Claude, Skripte, CI)
+### JSON-Ausgabe (für Skripte und CI)
 
 ```bash
 kirby content:pull --page=kontakt --dry-run --json
@@ -358,3 +358,7 @@ Die Unit-Tests decken Pfad-Validierung, Manifest-Filterung, Diff und Optionen ab
 | `SessionToken` | Signierter, kurzlebiger Token nach dem Kirby-Login |
 | `Updater`, `UpdateApi`, `UpdateCommand` | Optionales Self-Update aus GitHub-Releases (Panel + CLI) |
 | `Command` | `kirby content:pull` |
+
+## Lizenz
+
+MIT – siehe [LICENSE](LICENSE).
