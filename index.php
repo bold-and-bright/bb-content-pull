@@ -51,6 +51,31 @@ Kirby::plugin('bb/content-pull', [
 
     // Target side
     'commands' => [
-        'content:pull' => \BB\ContentPull\Command::definition(),
+        'content:pull'        => \BB\ContentPull\Command::definition(),
+        'content-pull:update' => \BB\ContentPull\UpdateCommand::definition(),
+    ],
+
+    // Optional self-update from GitHub releases (bb.contentpull.updates)
+    'areas' => [
+        'content-pull-update' => fn (Kirby $kirby) => \BB\ContentPull\UpdateApi::area($kirby),
+    ],
+    'api' => [
+        'routes' => [
+            [
+                'pattern' => 'content-pull/update/status',
+                'method'  => 'GET',
+                'action'  => fn () => \BB\ContentPull\UpdateApi::status(),
+            ],
+            [
+                'pattern' => 'content-pull/update/install',
+                'method'  => 'POST',
+                'action'  => fn () => \BB\ContentPull\UpdateApi::install(),
+            ],
+            [
+                'pattern' => 'content-pull/update/rollback',
+                'method'  => 'POST',
+                'action'  => fn () => \BB\ContentPull\UpdateApi::rollback(),
+            ],
+        ],
     ],
 ]);

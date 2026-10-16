@@ -5,6 +5,7 @@ Kirby-Plugin, mit dem eine Entwicklungs- oder Staging-Umgebung den `content/`-Or
 - Vergleich über ein Manifest mit SHA-1-Hashes – unveränderte Dateien werden nicht übertragen.
 - Idempotent: Downloads landen in einer Temp-Datei, werden per Hash geprüft und erst dann umbenannt. Ein abgebrochener Pull hinterlässt keine halben Dateien; erneut ausführen genügt.
 - `--json` für maschinenlesbare Ausgabe – Claude, Skripte und CI können direkt damit arbeiten.
+- Optional: Plugin-Updates direkt aus dem Panel bzw. per CLI aus den GitHub-Releases.
 - Kirby 4 und 5, PHP ≥ 8.2, keine Abhängigkeiten außer Kirby (HTTP über `Kirby\Http\Remote`).
 
 Idee nach [zephir/kirby-contentsync](https://github.com/zephir-digital/kirby-contentsync), eigene Implementierung.
@@ -16,6 +17,7 @@ Idee nach [zephir/kirby-contentsync](https://github.com/zephir-digital/kirby-con
 - [Konfiguration](#konfiguration)
 - [CLI](#cli)
 - [Caches](#caches)
+- [Plugin-Updates](#plugin-updates)
 - [Quell-Endpunkte](#quell-endpunkte)
 - [Sicherheit](#sicherheit)
 - [Entwicklung](#entwicklung)
@@ -80,6 +82,9 @@ Alle Optionen liegen unter `bb.contentpull.*`. **Als flache Punkt-Schlüssel set
 | `bb.contentpull.verify` | Ziel | `true` | TLS-Zertifikat der Quelle prüfen. Nur für lokale Quellen mit Self-Signed-Zertifikat auf `false`. |
 | `bb.contentpull.hashCache` | beide | `true` | Hashes unveränderter Dateien (gleiche Größe + mtime) wiederverwenden, siehe [Caches](#caches). |
 | `bb.contentpull.cache` | Ziel | – | Verzeichnis eines gemeinsamen Datei-Caches mehrerer Ziel-Umgebungen, siehe [Caches](#caches). |
+| `bb.contentpull.updates` | beide | `false` | Update aus dem Panel anbieten, siehe [Plugin-Updates](#plugin-updates). |
+| `bb.contentpull.updateRepository` | beide | `bold-and-bright/bb-content-pull` | GitHub-Repository der Releases. |
+| `bb.contentpull.updateApi` | beide | `https://api.github.com` | API-Basis-URL (z. B. GitHub Enterprise). |
 
 Den Token nicht ins Repository committen – aus `.env` oder einer nicht versionierten Datei lesen.
 
@@ -274,6 +279,37 @@ legt jede Umgebung heruntergeladene Dateien zusätzlich unter ihrem SHA-1 ab (`/
 
 Das Verzeichnis muss für alle Umgebungen dasselbe sein (z. B. ein Bind-Mount vom Host in jeden Container) und für den PHP-User beschreibbar. Aufräumen ist nicht nötig, solange der Platz reicht; sonst kann der Ordner jederzeit geleert werden.
 
+## Plugin-Updates
+
+Zwei Wege, je nach Projekt:
+
+**Mit Git-Deploy (empfohlen):** Plugin per Composer einbinden und Updates als Pull Request kommen lassen (z. B. über einen Composer-Update-Bot, Dependabot oder Renovate). Ein Update im Panel würde vom nächsten Deploy überschrieben.
+
+**Ohne Git-Deploy (optional):** Update direkt aus dem Panel oder per CLI, aus den GitHub-Releases dieses Repositories.
+
+```php
+'bb.contentpull.updates' => true,
+```
+
+- **Panel:** Für Admins erscheint der Menüpunkt *Content Pull Update*, sobald eine neuere Version oder ein Backup vorliegt – mit Release-Notes, „Aktualisieren“ und „Vorherige Version wiederherstellen“.
+- **CLI** (unabhängig von der Option):
+  ```bash
+  kirby content-pull:update --check        # installierte und neueste Version
+  kirby content-pull:update                # auf die neueste Version
+  kirby content-pull:update --version=1.4.0
+  kirby content-pull:update --rollback     # vorherige Version zurück
+  ```
+
+Ablauf: Release über die GitHub-API ermitteln (6 Stunden gecacht), `bb-content-pull.zip` und `bb-content-pull.zip.sha256` laden, Prüfsumme vergleichen, nur Einträge unterhalb von `bb-content-pull/` entpacken (keine `..`, keine Symlinks), dann per `rename` austauschen. Die bisherige Version bleibt als `site/plugins/.bb-content-pull.backup` liegen – Kirby lädt Ordner mit führendem Punkt nicht. Danach wird der Opcache geleert; jedes Update steht im Log.
+
+Voraussetzungen: öffentliches Repository (die API wird ohne Token abgefragt), PHP darf in `site/plugins` schreiben, `ext-zip`. Das Panel weist darauf hin, wenn das Projekt ein Git-Checkout ist oder das Plugin per Composer installiert wurde.
+
+### Release erstellen
+
+1. `version` in `composer.json` erhöhen und committen.
+2. Taggen und pushen: `git tag v1.4.0 && git push origin v1.4.0`.
+3. Der Workflow `.github/workflows/release.yml` führt die Tests aus, prüft Tag gegen `composer.json`, baut das ZIP per `git archive` (ohne Tests und CI-Dateien, siehe `.gitattributes`) samt SHA-256 und hängt beides an das GitHub-Release.
+
 ## Quell-Endpunkte
 
 Nur aktiv mit `bb.contentpull.serve => true`. Authentifizierung per `Authorization: Bearer <token>` – gemeinsamer Token oder Session-Token aus `/login`; als Fallback für Hoster, die den Authorization-Header verwerfen, auch `X-Content-Pull-Token: <token>`. Ohne gültigen Token: `401`.
@@ -320,4 +356,5 @@ Die Unit-Tests decken Pfad-Validierung, Manifest-Filterung, Diff und Optionen ab
 | `ObjectCache` | Gemeinsamer, inhaltsadressierter Datei-Cache |
 | `Server` | Quell-Endpunkte inkl. Kirby-Login |
 | `SessionToken` | Signierter, kurzlebiger Token nach dem Kirby-Login |
+| `Updater`, `UpdateApi`, `UpdateCommand` | Optionales Self-Update aus GitHub-Releases (Panel + CLI) |
 | `Command` | `kirby content:pull` |

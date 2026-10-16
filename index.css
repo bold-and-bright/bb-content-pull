@@ -1,0 +1,36 @@
+.k-content-pull-update {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--spacing-2) var(--spacing-6);
+  margin-block: var(--spacing-6);
+}
+
+.k-content-pull-update dt {
+  color: var(--color-text-dimmed);
+}
+
+.k-content-pull-update a {
+  margin-left: var(--spacing-3);
+  text-decoration: underline;
+}
+
+.k-content-pull-update-notes {
+  max-height: 20rem;
+  overflow: auto;
+  margin-bottom: var(--spacing-6);
+  padding: var(--spacing-3);
+  background: var(--color-white, var(--item-color-back));
+  border-radius: var(--rounded);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  white-space: pre-wrap;
+}
+
+.k-content-pull-update-hint {
+  margin-top: var(--spacing-3);
+  color: var(--color-text-dimmed);
+}
+
+.k-content-pull-update-view .k-box {
+  margin-bottom: var(--spacing-3);
+}
