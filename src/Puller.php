@@ -36,7 +36,11 @@ final class Puller
         $this->log = new Log(Plugin::logFile($kirby), $actor);
     }
 
-    public static function fromConfig(App $kirby, string $actor = 'cli'): self
+    /**
+     * @param array{0: string, 1: string}|null $credentials Kirby email and password
+     *                                                      on the source instead of the token
+     */
+    public static function fromConfig(App $kirby, string $actor = 'cli', ?array $credentials = null): self
     {
         $source = Plugin::source();
         $token  = Plugin::token();
@@ -45,8 +49,8 @@ final class Puller
             throw new RuntimeException('No source configured (bb.contentpull.source)');
         }
 
-        if ($token === null) {
-            throw new RuntimeException('No token configured (bb.contentpull.token)');
+        if ($token === null && $credentials === null) {
+            throw new RuntimeException('No token configured (bb.contentpull.token) – or log in with --user');
         }
 
         if (rtrim($kirby->url('index'), '/') === $source) {
@@ -54,13 +58,19 @@ final class Puller
         }
 
         $verify = Plugin::option('verify', true);
-
-        return new self($kirby, new Client(
+        $client = new Client(
             source: $source,
-            token: $token,
+            token: $credentials === null ? $token : '',
             timeout: (int) Plugin::option('timeout', 120),
             ca: $verify === false ? false : Remote::CA_INTERNAL,
-        ), $actor, Plugin::objectCache());
+        );
+
+        if ($credentials !== null) {
+            $session = $client->login($credentials[0], $credentials[1]);
+            $actor  .= ':' . $session['user'];
+        }
+
+        return new self($kirby, $client, $actor, Plugin::objectCache());
     }
 
     public function client(): Client

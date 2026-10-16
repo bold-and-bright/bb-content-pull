@@ -71,7 +71,9 @@ Alle Optionen liegen unter `bb.contentpull.*`. **Als flache Punkt-Schlüssel set
 | Option | Seite | Default | Beschreibung |
 | --- | --- | --- | --- |
 | `bb.contentpull.serve` | Quelle | `false` | Aktiviert die Quell-Endpunkte. Ohne `true` antworten sie mit 404. |
-| `bb.contentpull.token` | beide | – | Gemeinsames Secret. Erzeugen mit `openssl rand -hex 32`. |
+| `bb.contentpull.token` | beide | – | Gemeinsames Secret. Erzeugen mit `openssl rand -hex 32`. Auf dem Ziel optional, wenn per Kirby-Login gezogen wird (`--user`). |
+| `bb.contentpull.roles` | Quelle | `['admin']` | Rollen, die sich mit ihren Kirby-Zugangsdaten zum Ziehen anmelden dürfen. Accounts bekommen nur Admins. |
+| `bb.contentpull.sessionTtl` | Quelle | `7200` | Gültigkeit des Session-Tokens nach einem Kirby-Login in Sekunden. |
 | `bb.contentpull.accounts` | Quelle | `false` | Erlaubt, `site/accounts` auszuliefern (für `--accounts`). |
 | `bb.contentpull.source` | Ziel | – | Basis-URL der Quelle, z. B. `https://www.example.com`. |
 | `bb.contentpull.timeout` | Ziel | `120` | HTTP-Timeout pro Request in Sekunden. |
@@ -137,6 +139,7 @@ kirby content:pull [--scope=texts|media|all|accounts] [--page=<id>] [--recursive
                    [--lang=de,en] [--missing-only] [--max-size=20M]
                    [--delete] [--dry-run] [--accounts] [--include-changes]
                    [--archive] [--json]
+                   [--user=<email> [--password=<pw>] | --login]
 ```
 
 | Option | Beschreibung |
@@ -153,6 +156,9 @@ kirby content:pull [--scope=texts|media|all|accounts] [--page=<id>] [--recursive
 | `--include-changes` | Kirby-5-`_changes`-Ordner (ungespeicherte Panel-Änderungen) mitnehmen. |
 | `--archive` | Das gefilterte Set als ein ZIP holen statt Datei für Datei – sinnvoll für viele Medien. Übernommen werden trotzdem nur die Dateien aus dem Diff. Braucht `ext-zip` auf beiden Seiten. |
 | `--json` | Ein JSON-Dokument auf stdout statt Fortschrittsausgabe. |
+| `--user` | Statt des Tokens mit diesem Kirby-Benutzer (E-Mail) der Quelle anmelden. Ohne `--password` wird das Passwort verdeckt abgefragt. |
+| `--password` | Passwort zu `--user`. Besser weglassen und abfragen lassen – Argumente landen in der Shell-History und sind in der Prozessliste sichtbar. |
+| `--login` | E-Mail und Passwort abfragen. |
 
 Exit-Code `0` bei Erfolg, `1` bei Fehlern (Konfiguration, Quelle nicht erreichbar, einzelne Dateien fehlgeschlagen).
 
@@ -196,6 +202,23 @@ kirby content:pull --scope=accounts
 # In DDEV
 ddev exec vendor/bin/kirby content:pull --scope=texts
 ```
+
+### Mit Kirby-Zugangsdaten statt Token
+
+Entwickler:innen können mit ihrem eigenen Kirby-Account der Quelle ziehen – der Token muss dann auf dem Ziel gar nicht bekannt sein:
+
+```bash
+# Passwort wird verdeckt abgefragt
+kirby content:pull --user=dev@example.com --dry-run
+
+# E-Mail und Passwort abfragen
+kirby content:pull --login
+
+# Nicht-interaktiv (z. B. Skripte, Claude) – Passwort landet in der Shell-History
+kirby content:pull --user=dev@example.com --password='…' --json
+```
+
+Ablauf: Die CLI meldet sich einmal per `POST /bb-content-pull/login` an (HTTP Basic, Fallback-Header `X-Content-Pull-Auth`). Die Quelle prüft über Kirbys `Auth::validatePassword()` – inklusive Sperre nach zu vielen Fehlversuchen und Verzögerung bei falschem Passwort – und gibt einen signierten Session-Token zurück (Standard 2 Stunden), mit dem alle weiteren Requests laufen. Der Token ist mit dem Passwort-Hash des Benutzers signiert: Ändert sich das Passwort, ist er sofort ungültig. Erlaubt sind nur Rollen aus `bb.contentpull.roles` (Standard: Admins); Accounts bekommen nur Admins. Eine zweite Stufe (Login-Code) wird dabei nicht abgefragt. Abfragen erscheinen auf stderr, `--json` auf stdout bleibt sauber. Im Log steht der Benutzer: `[cli:dev@example.com]`.
 
 ### JSON-Ausgabe (für Claude, Skripte, CI)
 
@@ -253,13 +276,14 @@ Das Verzeichnis muss für alle Umgebungen dasselbe sein (z. B. ein Bind-Mount vo
 
 ## Quell-Endpunkte
 
-Nur aktiv mit `bb.contentpull.serve => true`. Authentifizierung per `Authorization: Bearer <token>`; als Fallback für Hoster, die den Authorization-Header verwerfen, auch `X-Content-Pull-Token: <token>`. Ohne gültigen Token: `401`.
+Nur aktiv mit `bb.contentpull.serve => true`. Authentifizierung per `Authorization: Bearer <token>` – gemeinsamer Token oder Session-Token aus `/login`; als Fallback für Hoster, die den Authorization-Header verwerfen, auch `X-Content-Pull-Token: <token>`. Ohne gültigen Token: `401`.
 
 | Endpunkt | Beschreibung |
 | --- | --- |
 | `GET /bb-content-pull/manifest` | JSON `{generated, languages, files: [{path, sha1, size, mtime}]}`. Akzeptiert `scope`, `page`, `recursive`, `lang`, `accounts`, `include-changes`; `hash=0` liefert eine billige Liste ohne Hashes. |
 | `GET /bb-content-pull/file?path=…` | Einzelne Datei, immer als `application/octet-stream`-Download, gestreamt. |
 | `GET /bb-content-pull/archive?…` | ZIP des gefilterten Sets (gleiche Parameter wie `manifest`, zusätzlich `max-size`). Medien unkomprimiert gespeichert. |
+| `POST /bb-content-pull/login` | Kirby-Zugangsdaten per HTTP Basic (oder `X-Content-Pull-Auth: base64(email:passwort)`) → `{token, expires, user, role}`. Der Token gilt dann wie der gemeinsame Token. |
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" "https://www.example.com/bb-content-pull/manifest?scope=texts&page=ueber-uns"
@@ -294,5 +318,6 @@ Die Unit-Tests decken Pfad-Validierung, Manifest-Filterung, Diff und Optionen ab
 | `Puller` | Der Pull: Plan, Downloads, Löschen, Caches, Log |
 | `HashCache` | Hashes unveränderter Dateien wiederverwenden |
 | `ObjectCache` | Gemeinsamer, inhaltsadressierter Datei-Cache |
-| `Server` | Quell-Endpunkte |
+| `Server` | Quell-Endpunkte inkl. Kirby-Login |
+| `SessionToken` | Signierter, kurzlebiger Token nach dem Kirby-Login |
 | `Command` | `kirby content:pull` |

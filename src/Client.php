@@ -12,7 +12,7 @@ final class Client
 {
     public function __construct(
         private readonly string $source,
-        private readonly string $token,
+        private string $token,
         private readonly int $timeout = 120,
         private readonly mixed $ca = Remote::CA_INTERNAL,
     ) {
@@ -21,6 +21,30 @@ final class Client
     public function source(): string
     {
         return $this->source;
+    }
+
+    /**
+     * Logs in with Kirby credentials; all following requests use the
+     * session token the source returns.
+     *
+     * @return array{token: string, expires: int, user: string, role: string}
+     */
+    public function login(string $email, #[\SensitiveParameter] string $password): array
+    {
+        $credentials = base64_encode($email . ':' . $password);
+        $data        = json_decode($this->request('POST', 'login', [], [
+            'Authorization'       => 'Basic ' . $credentials,
+            // Fallback for hosts that strip the Authorization header
+            'X-Content-Pull-Auth' => $credentials,
+        ]), true);
+
+        if (is_array($data) === false || is_string($data['token'] ?? null) === false) {
+            throw new RuntimeException('The source returned no session token');
+        }
+
+        $this->token = $data['token'];
+
+        return $data;
     }
 
     /**
@@ -69,15 +93,27 @@ final class Client
      */
     private function get(string $endpoint, array $query): string
     {
-        $url = $this->source . '/bb-content-pull/' . $endpoint . '?' . http_build_query($query);
+        return $this->request('GET', $endpoint, $query, [
+            'Authorization'        => 'Bearer ' . $this->token,
+            // Fallback for hosts that strip the Authorization header
+            'X-Content-Pull-Token' => $this->token,
+        ]);
+    }
 
-        $remote = Remote::get($url, [
-            'headers' => [
-                'Authorization'        => 'Bearer ' . $this->token,
-                // Fallback for hosts that strip the Authorization header
-                'X-Content-Pull-Token' => $this->token,
-                'Accept'               => $endpoint === 'manifest' ? 'application/json' : '*/*',
+    /**
+     * @param array<string, string> $query
+     * @param array<string, string> $headers
+     */
+    private function request(string $method, string $endpoint, array $query, array $headers): string
+    {
+        $url = $this->source . '/bb-content-pull/' . $endpoint . ($query !== [] ? '?' . http_build_query($query) : '');
+
+        $remote = Remote::request($url, [
+            'method'  => $method,
+            'headers' => $headers + [
+                'Accept' => in_array($endpoint, ['manifest', 'login'], true) ? 'application/json' : '*/*',
             ],
+            'data'    => $method === 'POST' ? '' : [],
             'timeout' => $this->timeout,
             'ca'      => $this->ca,
         ]);
@@ -96,7 +132,10 @@ final class Client
             $message = json_decode($content, true)['error'] ?? null;
 
             throw new RuntimeException(match ($code) {
-                401     => 'The source rejected the token (401)',
+                401     => $endpoint === 'login'
+                    ? 'Login failed: wrong email or password, or too many attempts (401)'
+                    : 'The source rejected the token (401)',
+                403     => 'The source refused (403)' . ($message ? ': ' . $message : ''),
                 404     => $endpoint === 'file'
                     ? 'File not found on the source (404)'
                     : 'The source does not serve content (404) — is bb.contentpull.serve enabled there?',

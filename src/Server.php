@@ -3,6 +3,7 @@
 namespace BB\ContentPull;
 
 use Kirby\Cms\App;
+use Kirby\Cms\User;
 use Kirby\Http\Response;
 use Throwable;
 use ZipArchive;
@@ -10,11 +11,55 @@ use ZipArchive;
 /**
  * Source side: /bb-content-pull/manifest|file|archive.
  *
- * Only active with `bb.contentpull.serve => true`; every request needs the
- * configured token as Bearer (or X-Content-Pull-Token) header.
+ * Only active with `bb.contentpull.serve => true`. Every request needs either
+ * the configured token or a session token from /bb-content-pull/login (Kirby
+ * credentials of a user with an allowed role) as Bearer or
+ * X-Content-Pull-Token header.
  */
 final class Server
 {
+    /** The Kirby user of the current request; null for the shared token */
+    private static ?User $user = null;
+
+    /**
+     * POST /bb-content-pull/login with the Kirby credentials as HTTP Basic auth
+     * (or X-Content-Pull-Auth: base64("email:password")) returns a session
+     * token for the following requests.
+     */
+    public static function login(): Response
+    {
+        if (Plugin::isSource() === false) {
+            return self::error('Not found', 404);
+        }
+
+        $kirby       = App::instance();
+        $credentials = self::requestCredentials();
+
+        if ($credentials === null) {
+            return self::error('Credentials missing', 401, ['WWW-Authenticate' => 'Basic realm="content-pull"']);
+        }
+
+        try {
+            // Kirby's own check incl. rate limiting and the delay on failure
+            $user = $kirby->auth()->validatePassword($credentials[0], $credentials[1]);
+        } catch (Throwable) {
+            return self::error('Invalid login', 401);
+        }
+
+        if (self::roleAllowed($user) === false) {
+            return self::error('Your role may not pull content (bb.contentpull.roles)', 403);
+        }
+
+        $expires = time() + (int) Plugin::option('sessionTtl', 7200);
+
+        return Response::json([
+            'token'   => SessionToken::create($user->id(), $expires, self::sessionKey($user)),
+            'expires' => $expires,
+            'user'    => $user->email(),
+            'role'    => $user->role()->name(),
+        ], 200, false, ['Cache-Control' => 'no-store']);
+    }
+
     public static function manifest(): Response
     {
         if (($denied = self::guard()) !== null) {
@@ -30,7 +75,7 @@ final class Server
         }
 
         if ($options->includesAccounts() === true && self::accountsAllowed() === false) {
-            return self::error('Accounts are not served by this source (bb.contentpull.accounts)', 403);
+            return self::error('Accounts are not served (bb.contentpull.accounts) or not to your role (admins only)', 403);
         }
 
         @set_time_limit(0);
@@ -95,7 +140,7 @@ final class Server
         }
 
         if ($options->includesAccounts() === true && self::accountsAllowed() === false) {
-            return self::error('Accounts are not served by this source (bb.contentpull.accounts)', 403);
+            return self::error('Accounts are not served (bb.contentpull.accounts) or not to your role (admins only)', 403);
         }
 
         @set_time_limit(0);
@@ -149,11 +194,76 @@ final class Server
             return self::error('Not found', 404);
         }
 
+        self::$user = null;
+
         $expected = Plugin::token();
         $given    = self::requestToken();
 
-        if ($expected === null || $given === null || hash_equals($expected, $given) === false) {
-            return self::error('Unauthorized', 401, ['WWW-Authenticate' => 'Bearer']);
+        if ($given !== null && $expected !== null && hash_equals($expected, $given) === true) {
+            return null;
+        }
+
+        if ($given !== null && SessionToken::looksLike($given) === true) {
+            $user = self::sessionUser($given);
+
+            if ($user !== null) {
+                self::$user = $user;
+                return null;
+            }
+        }
+
+        return self::error('Unauthorized', 401, ['WWW-Authenticate' => 'Bearer']);
+    }
+
+    private static function sessionUser(string $token): ?User
+    {
+        $id   = SessionToken::userId($token);
+        $user = $id !== null ? App::instance()->user($id) : null;
+
+        if ($user === null || self::roleAllowed($user) === false) {
+            return null;
+        }
+
+        return SessionToken::verify($token, self::sessionKey($user)) === true ? $user : null;
+    }
+
+    /**
+     * Derived from the password hash: a new password revokes all tokens.
+     */
+    private static function sessionKey(User $user): string
+    {
+        return hash('sha256', implode('|', [
+            'bb-content-pull',
+            $user->id(),
+            (string) $user->password(),
+            App::instance()->root('index'),
+        ]), true);
+    }
+
+    private static function roleAllowed(User $user): bool
+    {
+        $roles = (array) Plugin::option('roles', ['admin']);
+
+        return in_array($user->role()->name(), $roles, true);
+    }
+
+    /**
+     * @return array{0: string, 1: string}|null
+     */
+    private static function requestCredentials(): ?array
+    {
+        $request = App::instance()->request();
+        $auth    = $request->auth();
+
+        if ($auth instanceof \Kirby\Http\Request\Auth\BasicAuth && $auth->username() !== null) {
+            return [$auth->username(), (string) $auth->password()];
+        }
+
+        // Fallback for hosts and proxies that keep the Authorization header
+        $fallback = base64_decode((string) $request->header('X-Content-Pull-Auth'), true);
+
+        if (is_string($fallback) === true && str_contains($fallback, ':') === true) {
+            return explode(':', $fallback, 2);
         }
 
         return null;
@@ -186,9 +296,17 @@ final class Server
         ])));
     }
 
+    /**
+     * Accounts contain password hashes: served only when enabled, and to a
+     * Kirby user only if they are an admin.
+     */
     private static function accountsAllowed(): bool
     {
-        return Plugin::option('accounts', false) === true;
+        if (Plugin::option('accounts', false) !== true) {
+            return false;
+        }
+
+        return self::$user === null || self::$user->isAdmin() === true;
     }
 
     private static function error(string $message, int $code, array $headers = []): Response

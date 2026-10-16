@@ -41,6 +41,12 @@ Kirby::plugin('bb/content-pull', [
             'method'  => 'GET',
             'action'  => fn () => \BB\ContentPull\Server::archive(),
         ],
+        [
+            // Kirby credentials -> session token
+            'pattern' => 'bb-content-pull/login',
+            'method'  => 'POST',
+            'action'  => fn () => \BB\ContentPull\Server::login(),
+        ],
     ],
 
     // Target side
